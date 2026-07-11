@@ -1,0 +1,50 @@
+global:
+  scrape_interval:     15s   # How often to scrape targets
+  evaluation_interval: 15s   # How often to evaluate rules
+  scrape_timeout:      10s
+
+  external_labels:
+    environment: 'local'
+    service: 'url-shortener'
+
+# Alerting rules (production: load from separate files)
+# rule_files:
+#   - "alerts/*.yml"
+
+scrape_configs:
+
+  # Spring Boot application metrics via Micrometer/Actuator
+  - job_name: 'url-shortener-app'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['app:8080']
+    scrape_interval: 10s
+    # Basic auth for actuator endpoint in production:
+    # basic_auth:
+    #   username: actuator
+    #   password: changeme
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # NGINX metrics (requires nginx-prometheus-exporter sidecar in production)
+  # - job_name: 'nginx'
+  #   static_configs:
+  #     - targets: ['nginx-exporter:9113']
+
+  # PostgreSQL metrics (requires postgres_exporter in production)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+
+  # Redis metrics (requires redis_exporter in production)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+
+  # Kafka metrics (requires jmx-exporter or kafka-exporter in production)
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['kafka-exporter:9308']

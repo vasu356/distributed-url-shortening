@@ -1,0 +1,44 @@
+spring:
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        generate_statistics: false
+
+  datasource:
+    hikari:
+      minimum-idle: 10
+      maximum-pool-size: 30
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+
+  data:
+    redis:
+      lettuce:
+        pool:
+          max-active: 30
+          max-idle: 20
+          min-idle: 10
+
+  kafka:
+    listener:
+      concurrency: 6   # more parallelism in production
+
+management:
+  tracing:
+    sampling:
+      probability: 0.05   # sample 5% of requests in production
+
+logging:
+  level:
+    root: WARN
+    com.urlshortener: INFO
+    org.springframework: WARN
+    org.hibernate: WARN
+
+app:
+  cors:
+    allowed-origins:
+      - https://short.example.com
+      - https://app.example.com

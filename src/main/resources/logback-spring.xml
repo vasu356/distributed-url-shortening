@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+  <!-- ============================================================
+       Structured JSON logging for production.
+       Console logging for local development (profile-based).
+       JSON logs are shipped to a log aggregator (ELK/Loki).
+       ============================================================ -->
+
+  <springProfile name="local,test">
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder>
+        <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level [%X{traceId},%X{spanId}] [%X{correlationId}] %logger{36} - %msg%n</pattern>
+      </encoder>
+    </appender>
+
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <logger name="com.urlshortener" level="DEBUG"/>
+    <logger name="org.springframework.security" level="WARN"/>
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.springframework.kafka" level="INFO"/>
+  </springProfile>
+
+  <springProfile name="!local &amp; !test">
+    <!-- JSON appender for production — output parsed by log aggregators -->
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+      <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+        <!-- Simple JSON pattern — in production replace with logstash-logback-encoder -->
+        <pattern>{"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%-5level","service":"url-shortener","traceId":"%X{traceId}","spanId":"%X{spanId}","correlationId":"%X{correlationId}","userId":"%X{userId}","thread":"%thread","logger":"%logger{36}","message":"%message","exception":"%ex{full}"}%n</pattern>
+      </encoder>
+    </appender>
+
+    <!-- Async appender: decouples log writing from request thread.
+         Prevents slow disk I/O from adding latency to HTTP responses. -->
+    <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
+      <appender-ref ref="JSON_CONSOLE"/>
+      <queueSize>1024</queueSize>
+      <discardingThreshold>0</discardingThreshold>    <!-- never discard — lose logs on OOM, not normally -->
+      <includeCallerData>false</includeCallerData>     <!-- skip stack frame lookup for performance -->
+    </appender>
+
+    <root level="INFO">
+      <appender-ref ref="ASYNC_JSON"/>
+    </root>
+
+    <logger name="com.urlshortener" level="INFO"/>
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+  </springProfile>
+
+</configuration>

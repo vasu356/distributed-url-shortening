@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: url-shortener-api
+  namespace: url-shortener
+  labels:
+    app.kubernetes.io/name: url-shortener
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: url-shortener
+      app.kubernetes.io/component: api
+  # Rolling update strategy: zero-downtime deploys
+  # maxSurge=1: spin up 1 new pod before taking down old
+  # maxUnavailable=0: never reduce available pods below desired count
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: url-shortener
+        app.kubernetes.io/component: api
+        app.kubernetes.io/version: "1.0.0"
+      annotations:
+        # Force pod restart when ConfigMap/Secret changes
+        checksum/config: "placeholder-update-on-deploy"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      # Graceful shutdown: wait for in-flight requests to complete
+      terminationGracePeriodSeconds: 60
+
+      # Security context: pod runs as non-root
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Anti-affinity: spread pods across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: ["url-shortener"]
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: url-shortener-api
+          image: ghcr.io/your-org/url-shortener:1.0.0
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # Container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # Spring writes temp files
+            capabilities:
+              drop: ["ALL"]
+
+          # Environment from ConfigMap and Secret
+          envFrom:
+            - configMapRef:
+                name: url-shortener-config
+            - secretRef:
+                name: url-shortener-secrets
+
+          # Resource requests/limits
+          # Requests: guaranteed allocation — used for scheduling decisions
+          # Limits: hard cap — container OOMKilled if exceeded
+          resources:
+            requests:
+              cpu: 500m
+              memory: 768Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+
+          # Liveness probe: is the JVM alive?
+          # Slow to fail — pod only replaced if truly stuck
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 10
+
+          # Readiness probe: is the app ready to serve traffic?
+          # Faster to fail — pod removed from LB while warming up or under load
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          # Startup probe: gives app 3 minutes to start before liveness kicks in
+          # Prevents liveness from killing a slow-starting pod
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 18   # 18 * 10s = 3 minutes max startup time
+            timeoutSeconds: 5
+
+          # Mount a writable temp directory for Spring's temp files
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # Prefer nodes with the correct architecture label
+      nodeSelector:
+        kubernetes.io/os: linux
