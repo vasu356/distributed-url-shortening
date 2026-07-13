@@ -19,6 +19,7 @@ import com.urlshortener.domain.model.User;
 import com.urlshortener.domain.repository.ShortUrlRepository;
 import com.urlshortener.domain.repository.UserRepository;
 import com.urlshortener.domain.service.UrlValidationService;
+import com.urlshortener.application.usecase.UrlUseCase.ResolvedUrl;
 import com.urlshortener.infrastructure.cache.CachedUrl;
 import com.urlshortener.infrastructure.cache.UrlCacheService;
 import com.urlshortener.infrastructure.kafka.producer.EventProducer;
@@ -113,9 +114,10 @@ class UrlUseCaseTest {
     var cachedUrl = new CachedUrl("https://www.example.com", true, null, null, 0L, 302);
     when(urlCacheService.get("abc1234")).thenReturn(Optional.of(cachedUrl));
 
-    String result = urlUseCase.resolveForRedirect("abc1234");
+    ResolvedUrl result = urlUseCase.resolveForRedirect("abc1234");
 
-    assertThat(result).isEqualTo("https://www.example.com");
+    assertThat(result.longUrl()).isEqualTo("https://www.example.com");
+    assertThat(result.redirectType()).isEqualTo(302);
     verify(shortUrlRepository, never()).findByShortCode(anyString());
   }
 
@@ -127,9 +129,10 @@ class UrlUseCaseTest {
     ShortUrl url = ShortUrl.create(testUser, "abc1234", "https://www.example.com", false);
     when(shortUrlRepository.findByShortCode("abc1234")).thenReturn(Optional.of(url));
 
-    String result = urlUseCase.resolveForRedirect("abc1234");
+    ResolvedUrl result = urlUseCase.resolveForRedirect("abc1234");
 
-    assertThat(result).isEqualTo("https://www.example.com");
+    assertThat(result.longUrl()).isEqualTo("https://www.example.com");
+    assertThat(result.redirectType()).isEqualTo(302);
     verify(urlCacheService).put(eq("abc1234"), any());
   }
 

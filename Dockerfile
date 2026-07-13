@@ -1,18 +1,47 @@
+# syntax=docker/dockerfile:1.7
 # ============================================================
 # Stage 1: Build
 # Official Maven image bundles JDK 21 and Maven 3.9 on Alpine.
 # No Maven Wrapper needed — mvn is on PATH from the base image.
+#
+# BuildKit cache mount on /root/.m2 persists the Maven local
+# repository across builds without baking it into any image layer.
+# The cache is keyed per-runner and survives image rebuilds.
 # ============================================================
 FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 
 WORKDIR /build
 
+# ---- Step 1: resolve dependencies -------------------------
+# Copy only pom.xml first. As long as pom.xml is unchanged this
+# layer — and the dependency:go-offline download — is fully cached
+# regardless of any source code change.
 COPY pom.xml .
+
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    mvn dependency:go-offline dependency:resolve-plugins -B -q
+
+# ---- Step 2: compile healthcheck (independent of src/) -----
+# Placed before COPY src/ so that changing HealthCheck.java alone
+# does NOT invalidate the mvn package layer that follows.
+COPY docker/HealthCheck.java ./HealthCheck.java
+
+RUN javac HealthCheck.java -d /build/healthcheck-cls
+
+# ---- Step 3: compile and package the application ----------
+# Only reached (and only re-runs Maven) when src/ changes.
+# All dependencies are already in /root/.m2 from step 1.
 COPY src/ src/
 
-RUN mvn clean package -DskipTests -Dspotless.skip=true -B -q
+RUN --mount=type=cache,target=/root/.m2,sharing=locked \
+    mvn package -DskipTests -Dspotless.skip=true -B -q
 
-# Extract Spring Boot layered JAR — optimal Docker layer caching
+# ---- Step 4: extract Spring Boot layers --------------------
+# Splits the fat JAR into stable layers for optimal runtime caching:
+#   dependencies        — 3rd-party JARs, rarely change
+#   spring-boot-loader  — loader classes, almost never change
+#   snapshot-dependencies — SNAPSHOT JARs, change occasionally
+#   application         — your code, changes on every commit
 RUN java -Djarmode=layertools \
     -jar target/url-shortener-*.jar extract \
     --destination target/extracted
@@ -20,7 +49,7 @@ RUN java -Djarmode=layertools \
 # ============================================================
 # Stage 2: Runtime
 # Minimal JRE image. Non-root user. Only application layers.
-# No additional packages installed — image used as-is.
+# No JDK, no Maven, no source code, no build tools.
 # ============================================================
 FROM eclipse-temurin:21-jre-alpine AS runtime
 
@@ -31,25 +60,26 @@ RUN addgroup -g 10001 -S appgroup && \
 
 WORKDIR /app
 
-# Copy layers in dependency-stability order:
-# dependencies (largest, rarely change) → snapshot-dependencies → spring-boot-loader → application
+# Copy Spring Boot layers in dependency-stability order.
+# Layers that change rarely appear first → more cache hits on push/pull.
 COPY --from=builder --chown=appuser:appgroup /build/target/extracted/dependencies/ ./
 COPY --from=builder --chown=appuser:appgroup /build/target/extracted/spring-boot-loader/ ./
 COPY --from=builder --chown=appuser:appgroup /build/target/extracted/snapshot-dependencies/ ./
 COPY --from=builder --chown=appuser:appgroup /build/target/extracted/application/ ./
 
-# Health check script — uses java.net.http.HttpClient available in the JRE.
-# No curl, wget, or any Alpine package required.
-COPY --chown=appuser:appgroup docker/healthcheck.java /app/healthcheck.java
+# Copy pre-compiled healthcheck class from builder.
+# Compiled in the JDK builder stage so the JRE runtime needs no
+# jdk.compiler module. Only the .class file is copied — no source.
+COPY --from=builder --chown=appuser:appgroup /build/healthcheck-cls/ /app/healthcheck/
 
 USER appuser
 
 # JVM flags for container-awareness:
-# -XX:+UseContainerSupport: respect cgroup CPU/memory limits (Java 8u191+, default in 11+)
+# -XX:+UseContainerSupport: respect cgroup CPU/memory limits (default in Java 11+)
 # -XX:MaxRAMPercentage=75: use 75% of container memory for heap
-# -XX:+OptimizeStringConcat: optimise string concatenation
+# -XX:InitialRAMPercentage=50: start at 50% to avoid slow initial GC
+# -XX:+OptimizeStringConcat: optimise string concatenation at JIT time
 # -Djava.security.egd: faster SecureRandom seeding in containers
-# Virtual threads are enabled via application.properties
 ENV JAVA_OPTS="-XX:+UseContainerSupport \
                -XX:MaxRAMPercentage=75.0 \
                -XX:InitialRAMPercentage=50.0 \
@@ -59,12 +89,9 @@ ENV JAVA_OPTS="-XX:+UseContainerSupport \
 
 EXPOSE 8080
 
-# Health check: runs healthcheck.java via `java --source 21`.
-# JEP 445 unnamed classes (Java 21 preview / Java 23 standard) allow a top-level
-# void main() without a class declaration, keeping the script minimal.
-# -XX:TieredStopAtLevel=1 skips JIT compilation for this short-lived probe process.
+# Health check: executes the pre-compiled HealthCheck class using the JRE.
+# -XX:TieredStopAtLevel=1 skips JIT for this short-lived probe process.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD java -XX:TieredStopAtLevel=1 --enable-preview --source 21 \
-        /app/healthcheck.java 2>/dev/null || exit 1
+    CMD java -XX:TieredStopAtLevel=1 -cp /app/healthcheck HealthCheck 2>/dev/null || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]

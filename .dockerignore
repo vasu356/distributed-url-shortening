@@ -1,0 +1,90 @@
+# ============================================================
+# .dockerignore — keeps the build context minimal.
+#
+# Rules of thumb:
+#   Exclude everything not needed inside the Docker build.
+#   A smaller context = faster transfer + no accidental cache busts.
+# ============================================================
+
+# ---- Build output (never send host-compiled artifacts) -----
+target/
+build/
+out/
+
+# ---- Local Maven repository (not needed; builder downloads its own) --
+.m2/
+
+# ---- IDE / editor artefacts --------------------------------
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.factorypath
+.springBeans
+.sts4-cache
+.apt_generated
+.nb-gradle/
+nbproject/
+
+# ---- OS noise ----------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V8
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ---- Logs / crash dumps ------------------------------------
+*.log
+logs/
+nohup.out
+hs_err_pid*.log
+replay_pid*.log
+java_pid*.hprof
+
+# ---- Kubernetes manifests (runtime infra, not build input) -
+k8s/
+
+# ---- CI/CD workflows (not needed in the image) -------------
+.github/
+
+# ---- Documentation (not needed in the image) ---------------
+docs/
+README.md
+checkstyle.xml
+
+# ---- Scripts (load test, startup check — not build input) --
+scripts/
+
+# ---- Environment / secrets (never bake into image) ---------
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.jks
+secrets/
+
+# ---- Temp / backup files -----------------------------------
+*.bak
+*.backup
+*.orig
+*~
+*.tmp
+*.swp
+*.swo
+
+# ---- Docker Compose overrides (not build input) ------------
+docker-compose*.yml
+docker-compose*.yaml
+
+# ---- License / hygiene files (not build input) -------------
+LICENSE
+.gitignore
+.env.example

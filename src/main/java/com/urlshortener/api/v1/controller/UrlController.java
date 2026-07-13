@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * URL management endpoints.
@@ -41,6 +43,9 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "URLs", description = "URL shortening operations")
 @SecurityRequirement(name = "bearerAuth")
 public class UrlController {
+
+  private static final Set<String> ALLOWED_SORT_FIELDS =
+      Set.of("createdAt", "updatedAt", "clickCount", "shortCode");
 
   private final UrlUseCase urlUseCase;
   private final QrCodeService qrCodeService;
@@ -72,6 +77,12 @@ public class UrlController {
       @RequestParam(defaultValue = "desc") String direction,
       @RequestParam(required = false) String search,
       @AuthenticationPrincipal String userId) {
+
+    if (!ALLOWED_SORT_FIELDS.contains(sortBy)) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST,
+          "Invalid sortBy value '" + sortBy + "'. Allowed: " + ALLOWED_SORT_FIELDS);
+    }
 
     Sort sort =
         "asc".equalsIgnoreCase(direction)

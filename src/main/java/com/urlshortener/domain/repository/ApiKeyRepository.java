@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public interface ApiKeyRepository extends JpaRepository<ApiKey, UUID> {
@@ -20,6 +21,7 @@ public interface ApiKeyRepository extends JpaRepository<ApiKey, UUID> {
   List<ApiKey> findByUserId(UUID userId);
 
   @Modifying
+  @Transactional
   @Query("UPDATE ApiKey k SET k.lastUsedAt = CURRENT_TIMESTAMP WHERE k.id = :id")
   void updateLastUsed(@Param("id") UUID id);
 

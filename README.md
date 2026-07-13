@@ -79,7 +79,7 @@ docker compose up -d postgres redis kafka
 ```bash
 docker compose up -d
 # App:       http://localhost:80
-# Grafana:   http://localhost:3001  (admin/admin)
+# Grafana:   http://localhost:3002  (admin/admin)
 # Jaeger:    http://localhost:16686
 # Prometheus: http://localhost:9090
 ```
@@ -256,7 +256,7 @@ Key metrics exposed at `/actuator/prometheus`:
 | `kafka_consumer_batch_failed_total` | Consumer failures | 0 |
 | `hikaricp_connections_active` | DB pool usage | < 80% of max |
 
-Grafana dashboard auto-provisioned at `http://localhost:3001`.
+Grafana dashboard auto-provisioned at `http://localhost:3002`.
 
 ### Distributed Tracing (Jaeger)
 

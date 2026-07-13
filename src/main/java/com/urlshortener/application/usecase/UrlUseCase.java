@@ -43,6 +43,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class UrlUseCase {
 
+  /** Carries both the target URL and the HTTP redirect type (301 or 302) to the controller. */
+  public record ResolvedUrl(String longUrl, int redirectType) {}
+
   private final ShortUrlRepository shortUrlRepository;
   private final UserRepository userRepository;
   private final ShortCodeGenerator shortCodeGenerator;
@@ -204,10 +207,10 @@ public class UrlUseCase {
    * miss. Does NOT write to DB (click count increment is done via Kafka consumer).
    *
    * @param shortCode the short code to resolve
-   * @return the long URL to redirect to
+   * @return a {@link ResolvedUrl} containing the target URL and the HTTP redirect type (301 or 302)
    */
   @Transactional(readOnly = true)
-  public String resolveForRedirect(String shortCode) {
+  public ResolvedUrl resolveForRedirect(String shortCode) {
     Timer.Sample timer = Timer.start(meterRegistry);
 
     // L1: Redis cache
@@ -225,7 +228,7 @@ public class UrlUseCase {
         }
         throw new Exceptions.UrlInactiveException(shortCode);
       }
-      return cachedUrl.longUrl();
+      return new ResolvedUrl(cachedUrl.longUrl(), cachedUrl.redirectType());
     }
 
     // L2: Database
@@ -249,7 +252,7 @@ public class UrlUseCase {
       throw new Exceptions.UrlInactiveException(shortCode);
     }
 
-    return url.getLongUrl();
+    return new ResolvedUrl(url.getLongUrl(), url.getRedirectType());
   }
 
   // ================================================================

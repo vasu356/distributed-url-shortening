@@ -7,20 +7,26 @@
 #   docker compose up -d          # start all
 #   docker compose logs -f app    # tail app logs
 #   docker compose down -v        # stop and remove volumes
+#
+# Jaeger ports can be overridden via environment variables to
+# avoid conflicts with other local projects (e.g. VaultFlow):
+#   JAEGER_UI_PORT        — default 16687, maps to container 16686
+#   JAEGER_OTLP_HTTP_PORT — default 4418,  maps to container 4318
+#   JAEGER_OTLP_GRPC_PORT — default 4417,  maps to container 4317
 # ============================================================
 
 x-common-env: &common-env
   SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
   DB_URL: jdbc:postgresql://postgres:5432/urlshortener
-  DB_USERNAME: ${DB_USERNAME:-urlshortener}
-  DB_PASSWORD: ${DB_PASSWORD:-urlshortener}
+  DB_USERNAME: ${DB_USERNAME}
+  DB_PASSWORD: ${DB_PASSWORD}
   REDIS_HOST: redis
   REDIS_PORT: 6379
   KAFKA_BOOTSTRAP_SERVERS: kafka:9092
   KAFKA_CONSUMER_GROUP: url-shortener-main
   APP_BASE_URL: http://localhost:8080
   OTLP_ENDPOINT: http://jaeger:4318/v1/traces
-  JWT_SECRET: ${JWT_SECRET:-bXlzdXBlcnNlY3JldGtleWZvckhXVGF1dGhlbnRpY2F0aW9u}
+  JWT_SECRET: ${JWT_SECRET}
   ENVIRONMENT: local
 
 services:
@@ -33,6 +39,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runtime
+      cache_from:
+        - url-shortener:local
     image: url-shortener:local
     container_name: url-shortener-app
     ports:
@@ -47,7 +55,7 @@ services:
       kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/actuator/health/liveness"]
+      test: ["CMD", "java", "-XX:TieredStopAtLevel=1", "-cp", "/app/healthcheck", "HealthCheck"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -69,15 +77,15 @@ services:
     container_name: url-shortener-postgres
     environment:
       POSTGRES_DB: urlshortener
-      POSTGRES_USER: ${DB_USERNAME:-urlshortener}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-urlshortener}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       PGDATA: /data/postgres
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/data/postgres
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U urlshortener -d urlshortener"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -200,7 +208,7 @@ services:
     image: grafana/grafana:10.4.0
     container_name: url-shortener-grafana
     ports:
-      - "3001:3000"
+      - "3002:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
@@ -217,14 +225,17 @@ services:
 
   # ============================================================
   # JAEGER — distributed tracing
+  # Override host ports via JAEGER_UI_PORT, JAEGER_OTLP_HTTP_PORT,
+  # JAEGER_OTLP_GRPC_PORT in your .env if another project (e.g.
+  # VaultFlow) already occupies 16686, 4318, or 4317.
   # ============================================================
   jaeger:
     image: jaegertracing/all-in-one:1.56
     container_name: url-shortener-jaeger
     ports:
-      - "16686:16686"  # UI
-      - "4318:4318"    # OTLP HTTP
-      - "4317:4317"    # OTLP gRPC
+      - "${JAEGER_UI_PORT:-16687}:16686"        # UI
+      - "${JAEGER_OTLP_HTTP_PORT:-4418}:4318"   # OTLP HTTP
+      - "${JAEGER_OTLP_GRPC_PORT:-4417}:4317"   # OTLP gRPC
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     networks:

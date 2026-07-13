@@ -1,6 +1,7 @@
 package com.urlshortener.api.v1.controller;
 
 import com.urlshortener.application.usecase.UrlUseCase;
+import com.urlshortener.application.usecase.UrlUseCase.ResolvedUrl;
 import com.urlshortener.infrastructure.kafka.producer.EventProducer;
 import com.urlshortener.infrastructure.kafka.producer.KafkaEvents;
 import com.urlshortener.infrastructure.ratelimit.RateLimiterService;
@@ -50,7 +51,7 @@ public class RedirectController {
     rateLimiterService.checkIpRateLimit(clientIp);
 
     // Resolves from Redis (cache hit) or PostgreSQL (cache miss)
-    String longUrl = urlUseCase.resolveForRedirect(shortCode);
+    ResolvedUrl resolved = urlUseCase.resolveForRedirect(shortCode);
 
     // Fire-and-forget: never blocks the response
     publishClickAsync(shortCode, clientIp, request);
@@ -58,8 +59,8 @@ public class RedirectController {
     MDC.put("shortCode", shortCode);
     log.debug("Redirect shortCode={}", shortCode);
 
-    return ResponseEntity.status(HttpStatus.FOUND)
-        .header(HttpHeaders.LOCATION, longUrl)
+    return ResponseEntity.status(HttpStatus.valueOf(resolved.redirectType()))
+        .header(HttpHeaders.LOCATION, resolved.longUrl())
         .header("Cache-Control", "no-store")
         .header("X-Short-Code", shortCode)
         .build();
