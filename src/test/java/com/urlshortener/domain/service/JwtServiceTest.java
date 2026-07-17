@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 class JwtServiceTest {
 
   // 32-byte Base64-encoded secret (minimum for HS256)
-  private static final String TEST_SECRET = "dGVzdHNlY3JldGtleWZvcnVuaXR0ZXN0aW5nMTIzNDU2";
+  private static final String TEST_SECRET = "HV7r27IXkY4KYKV6ZlKb/FqO+9ekcCsBXY45p++1zhQ=";
 
   private JwtService jwtService;
 
