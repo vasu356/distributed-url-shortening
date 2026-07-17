@@ -147,7 +147,7 @@ jobs:
         run: ./mvnw -B dependency:go-offline
 
       - name: Scan source with Trivy (filesystem)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -223,7 +223,7 @@ jobs:
           sbom: true              # Generate software bill of materials
 
       - name: Scan built image with Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.docker-build.outputs.digest }}
           format: sarif
