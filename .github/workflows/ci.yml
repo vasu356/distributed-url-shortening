@@ -65,7 +65,7 @@ jobs:
           "-Dtest=!*IntegrationTest,!*RepositoryTest,!ArchitectureTest"
         env:
           # Required by application.yml even when overridden by test profile
-          JWT_SECRET: "dGVzdHNlY3JldGtleWZvcnVuaXR0ZXN0aW5nMTIzNDU2"
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
@@ -114,7 +114,7 @@ jobs:
           DOCKER_HOST: "unix:///var/run/docker.sock"
           TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: "/var/run/docker.sock"
           # Required by application.yml even when overridden by test profile
-          JWT_SECRET: "dGVzdHNlY3JldGtleWZvcnVuaXR0ZXN0aW5nMTIzNDU2"
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
 
       - name: Archive integration test results
         if: always()
@@ -136,8 +136,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Populate Maven cache
+        run: ./mvnw -B dependency:go-offline
+
       - name: Scan source with Trivy (filesystem)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: fs
           scan-ref: .
@@ -200,6 +210,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push image
+        id: docker-build
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -212,9 +223,9 @@ jobs:
           sbom: true              # Generate software bill of materials
 
       - name: Scan built image with Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.docker-build.outputs.digest }}
           format: sarif
           output: trivy-image-results.sarif
           severity: CRITICAL
@@ -226,5 +237,5 @@ jobs:
 
       # Output the image digest for the deploy job
       - name: Output image digest
-        run: echo "IMAGE_DIGEST=${{ steps.meta.outputs.digest }}" >> $GITHUB_OUTPUT
         id: image-output
+        run: echo "IMAGE_DIGEST=${{ steps.docker-build.outputs.digest }}" >> $GITHUB_OUTPUT
