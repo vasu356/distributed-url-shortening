@@ -1,8 +1,8 @@
 package com.urlshortener.api.v1.controller;
 
-import com.urlshortener.api.v1.dto.request.ApiKeyDtos;
-import com.urlshortener.api.v1.dto.response.ApiKeyCreatedResponse;
-import com.urlshortener.api.v1.dto.response.ApiKeyResponse;
+import com.urlshortener.application.dto.request.ApiKeyCommands;
+import com.urlshortener.application.dto.response.ApiKeyCreatedResult;
+import com.urlshortener.application.dto.response.ApiKeyResult;
 import com.urlshortener.application.usecase.ApiKeyUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -41,16 +41,16 @@ public class ApiKeyController {
   @Operation(
       summary = "Create a new API key",
       description = "The raw key is returned once and never retrievable again.")
-  public ResponseEntity<ApiKeyCreatedResponse> create(
-      @Valid @RequestBody ApiKeyDtos.CreateApiKeyRequest request,
+  public ResponseEntity<ApiKeyCreatedResult> create(
+      @Valid @RequestBody ApiKeyCommands.CreateApiKeyCommand command,
       @AuthenticationPrincipal String userId) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(apiKeyUseCase.createApiKey(request, UUID.fromString(userId)));
+        .body(apiKeyUseCase.createApiKey(command, UUID.fromString(userId)));
   }
 
   @GetMapping
   @Operation(summary = "List all API keys for the authenticated user")
-  public ResponseEntity<List<ApiKeyResponse>> list(@AuthenticationPrincipal String userId) {
+  public ResponseEntity<List<ApiKeyResult>> list(@AuthenticationPrincipal String userId) {
     return ResponseEntity.ok(apiKeyUseCase.listApiKeys(UUID.fromString(userId)));
   }
 

@@ -1,11 +1,11 @@
 package com.urlshortener.application.usecase;
 
-import com.urlshortener.api.v1.dto.response.AnalyticsResponse;
-import com.urlshortener.api.v1.dto.response.ClickByCountry;
-import com.urlshortener.api.v1.dto.response.ClickByDate;
-import com.urlshortener.api.v1.dto.response.ClickByDevice;
-import com.urlshortener.api.v1.dto.response.ClickByReferrer;
-import com.urlshortener.api.v1.dto.response.DashboardAnalyticsResponse;
+import com.urlshortener.application.dto.response.AnalyticsResult;
+import com.urlshortener.application.dto.response.ClickByCountryResult;
+import com.urlshortener.application.dto.response.ClickByDateResult;
+import com.urlshortener.application.dto.response.ClickByDeviceResult;
+import com.urlshortener.application.dto.response.ClickByReferrerResult;
+import com.urlshortener.application.dto.response.DashboardAnalyticsResult;
 import com.urlshortener.common.exception.Exceptions;
 import com.urlshortener.domain.model.ShortUrl;
 import com.urlshortener.domain.repository.ClickEventRepository;
@@ -38,10 +38,10 @@ public class AnalyticsUseCase {
    * @param shortCode the short code to query
    * @param userId the requesting user's UUID (must be the owner)
    * @param days the lookback window in days
-   * @return the analytics response
+   * @return the analytics result
    */
   @Transactional(readOnly = true)
-  public AnalyticsResponse getUrlAnalytics(String shortCode, UUID userId, int days) {
+  public AnalyticsResult getUrlAnalytics(String shortCode, UUID userId, int days) {
     ShortUrl url =
         shortUrlRepository
             .findByShortCode(shortCode)
@@ -56,33 +56,33 @@ public class AnalyticsUseCase {
     long recentClicks = clickEventRepository.countByShortUrlIdAndCreatedAtAfter(url.getId(), from);
     long uniqueClicks = clickEventRepository.countDistinctIpHashByShortUrlId(url.getId());
 
-    List<ClickByDate> byDate =
+    List<ClickByDateResult> byDate =
         clickEventRepository.findClicksByDate(url.getId(), from, to).stream()
-            .map(r -> new ClickByDate(r[0].toString(), ((Number) r[1]).longValue()))
+            .map(r -> new ClickByDateResult(r[0].toString(), ((Number) r[1]).longValue()))
             .toList();
-    List<ClickByCountry> byCountry =
+    List<ClickByCountryResult> byCountry =
         clickEventRepository.findClicksByCountry(url.getId(), from).stream()
             .map(
                 r ->
-                    new ClickByCountry(
+                    new ClickByCountryResult(
                         r[0] != null ? r[0].toString() : "Unknown", ((Number) r[1]).longValue()))
             .toList();
-    List<ClickByReferrer> byReferrer =
+    List<ClickByReferrerResult> byReferrer =
         clickEventRepository.findClicksByReferrer(url.getId(), from).stream()
             .map(
                 r ->
-                    new ClickByReferrer(
+                    new ClickByReferrerResult(
                         r[0] != null ? r[0].toString() : "direct", ((Number) r[1]).longValue()))
             .toList();
-    List<ClickByDevice> byDevice =
+    List<ClickByDeviceResult> byDevice =
         clickEventRepository.findClicksByDevice(url.getId(), from).stream()
             .map(
                 r ->
-                    new ClickByDevice(
+                    new ClickByDeviceResult(
                         r[0] != null ? r[0].toString() : "UNKNOWN", ((Number) r[1]).longValue()))
             .toList();
 
-    return new AnalyticsResponse(
+    return new AnalyticsResult(
         url.getId(),
         shortCode,
         totalClicks,
@@ -100,13 +100,13 @@ public class AnalyticsUseCase {
    *
    * @param userId the user's UUID
    * @param days the lookback window in days
-   * @return the dashboard analytics response
+   * @return the dashboard analytics result
    */
   @Transactional(readOnly = true)
-  public DashboardAnalyticsResponse getDashboard(UUID userId, int days) {
+  public DashboardAnalyticsResult getDashboard(UUID userId, int days) {
     Instant from = Instant.now().minus(days, ChronoUnit.DAYS);
     long totalUrls = shortUrlRepository.countByUserIdAndActiveTrue(userId);
     long totalClicks = clickEventRepository.countClicksForUser(userId, from);
-    return new DashboardAnalyticsResponse(totalUrls, totalClicks, from, Instant.now());
+    return new DashboardAnalyticsResult(totalUrls, totalClicks, from, Instant.now());
   }
 }

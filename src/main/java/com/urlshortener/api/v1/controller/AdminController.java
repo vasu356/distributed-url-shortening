@@ -1,10 +1,10 @@
 package com.urlshortener.api.v1.controller;
 
-import com.urlshortener.api.v1.dto.response.AuditLogResponse;
-import com.urlshortener.api.v1.dto.response.PagedResponse;
-import com.urlshortener.api.v1.dto.response.SystemStatsResponse;
-import com.urlshortener.api.v1.dto.response.UrlResponse;
-import com.urlshortener.api.v1.dto.response.UserResponse;
+import com.urlshortener.application.dto.response.AuditLogResult;
+import com.urlshortener.application.dto.response.PagedResult;
+import com.urlshortener.application.dto.response.SystemStatsResult;
+import com.urlshortener.application.dto.response.UrlResult;
+import com.urlshortener.application.dto.response.UserResult;
 import com.urlshortener.application.usecase.AdminUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -39,7 +39,7 @@ public class AdminController {
 
   @GetMapping("/users")
   @Operation(summary = "List all users (paginated)")
-  public ResponseEntity<PagedResponse<UserResponse>> listUsers(
+  public ResponseEntity<PagedResult<UserResult>> listUsers(
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
       @RequestParam(required = false) String search) {
@@ -48,7 +48,7 @@ public class AdminController {
 
   @GetMapping("/users/{userId}")
   @Operation(summary = "Get a specific user by ID")
-  public ResponseEntity<UserResponse> getUser(@PathVariable UUID userId) {
+  public ResponseEntity<UserResult> getUser(@PathVariable UUID userId) {
     return ResponseEntity.ok(adminUseCase.getUser(userId));
   }
 
@@ -62,13 +62,13 @@ public class AdminController {
 
   @PatchMapping("/users/{userId}/promote")
   @Operation(summary = "Promote a user to ADMIN role")
-  public ResponseEntity<UserResponse> promoteUser(@PathVariable UUID userId) {
+  public ResponseEntity<UserResult> promoteUser(@PathVariable UUID userId) {
     return ResponseEntity.ok(adminUseCase.promoteToAdmin(userId));
   }
 
   @GetMapping("/urls")
   @Operation(summary = "List all URLs in the system (paginated)")
-  public ResponseEntity<PagedResponse<UrlResponse>> listAllUrls(
+  public ResponseEntity<PagedResult<UrlResult>> listAllUrls(
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
       @RequestParam(required = false) String userId,
@@ -86,7 +86,7 @@ public class AdminController {
 
   @GetMapping("/audit-logs")
   @Operation(summary = "Query audit logs with filters")
-  public ResponseEntity<PagedResponse<AuditLogResponse>> getAuditLogs(
+  public ResponseEntity<PagedResult<AuditLogResult>> getAuditLogs(
       @RequestParam(required = false) UUID actorId,
       @RequestParam(required = false) String action,
       @RequestParam(required = false) String entityType,
@@ -97,7 +97,7 @@ public class AdminController {
 
   @GetMapping("/stats")
   @Operation(summary = "System-wide statistics")
-  public ResponseEntity<SystemStatsResponse> getStats() {
+  public ResponseEntity<SystemStatsResult> getStats() {
     return ResponseEntity.ok(adminUseCase.getSystemStats());
   }
 }

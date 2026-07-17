@@ -1,8 +1,8 @@
 package com.urlshortener.api.v1.controller;
 
-import com.urlshortener.api.v1.dto.request.AuthDtos;
-import com.urlshortener.api.v1.dto.response.AuthResponse;
-import com.urlshortener.api.v1.dto.response.UserResponse;
+import com.urlshortener.application.dto.request.AuthCommands;
+import com.urlshortener.application.dto.response.AuthResult;
+import com.urlshortener.application.dto.response.UserResult;
 import com.urlshortener.application.usecase.AuthUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -38,21 +38,22 @@ public class AuthController {
 
   @PostMapping("/register")
   @Operation(summary = "Register a new user")
-  public ResponseEntity<AuthResponse> register(
-      @Valid @RequestBody AuthDtos.RegisterRequest request) {
-    return ResponseEntity.status(HttpStatus.CREATED).body(authUseCase.register(request));
+  public ResponseEntity<AuthResult> register(
+      @Valid @RequestBody AuthCommands.RegisterCommand command) {
+    return ResponseEntity.status(HttpStatus.CREATED).body(authUseCase.register(command));
   }
 
   @PostMapping("/login")
   @Operation(summary = "Authenticate and receive tokens")
-  public ResponseEntity<AuthResponse> login(@Valid @RequestBody AuthDtos.LoginRequest request) {
-    return ResponseEntity.ok(authUseCase.login(request));
+  public ResponseEntity<AuthResult> login(@Valid @RequestBody AuthCommands.LoginCommand command) {
+    return ResponseEntity.ok(authUseCase.login(command));
   }
 
   @PostMapping("/refresh")
   @Operation(summary = "Exchange a refresh token for a new access token")
-  public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody AuthDtos.RefreshRequest request) {
-    return ResponseEntity.ok(authUseCase.refresh(request.refreshToken()));
+  public ResponseEntity<AuthResult> refresh(
+      @Valid @RequestBody AuthCommands.RefreshCommand command) {
+    return ResponseEntity.ok(authUseCase.refresh(command.refreshToken()));
   }
 
   @PostMapping("/logout")
@@ -68,7 +69,7 @@ public class AuthController {
   @GetMapping("/me")
   @Operation(summary = "Get the current authenticated user")
   @SecurityRequirement(name = "bearerAuth")
-  public ResponseEntity<UserResponse> me(@AuthenticationPrincipal String userId) {
+  public ResponseEntity<UserResult> me(@AuthenticationPrincipal String userId) {
     return ResponseEntity.ok(authUseCase.getCurrentUser(UUID.fromString(userId)));
   }
 }

@@ -47,7 +47,6 @@ SELECT * FROM short_urls
 WHERE user_id = :userId
   AND deleted_at IS NULL
   AND to_tsvector('english', long_url || ' ' || COALESCE(title, '')) @@ plainto_tsquery('english', :query)
-ORDER BY created_at DESC
 """,
       countQuery =
           """

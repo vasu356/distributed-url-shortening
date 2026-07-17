@@ -1,13 +1,14 @@
 package com.urlshortener.application.usecase;
 
-import com.urlshortener.api.v1.dto.request.ApiKeyDtos;
-import com.urlshortener.api.v1.dto.response.ApiKeyCreatedResponse;
-import com.urlshortener.api.v1.dto.response.ApiKeyResponse;
+import com.urlshortener.application.dto.request.ApiKeyCommands;
+import com.urlshortener.application.dto.response.ApiKeyCreatedResult;
+import com.urlshortener.application.dto.response.ApiKeyResult;
 import com.urlshortener.common.exception.Exceptions;
 import com.urlshortener.domain.model.ApiKey;
 import com.urlshortener.domain.model.User;
 import com.urlshortener.domain.repository.ApiKeyRepository;
 import com.urlshortener.domain.repository.UserRepository;
+import com.urlshortener.infrastructure.kafka.producer.AuditJsonBuilder;
 import com.urlshortener.infrastructure.kafka.producer.EventProducer;
 import com.urlshortener.infrastructure.kafka.producer.KafkaEvents;
 import java.nio.charset.StandardCharsets;
@@ -40,16 +41,17 @@ public class ApiKeyUseCase {
   private final ApiKeyRepository apiKeyRepository;
   private final UserRepository userRepository;
   private final EventProducer eventProducer;
+  private final AuditJsonBuilder auditJson;
 
   /**
    * Creates a new API key for the given user.
    *
-   * @param request the creation request including name and optional scopes
+   * @param command the creation command including name and optional scopes
    * @param userId the owning user's UUID
-   * @return the created key response including the raw key (shown only once)
+   * @return the created key result including the raw key (shown only once)
    */
   @Transactional
-  public ApiKeyCreatedResponse createApiKey(ApiKeyDtos.CreateApiKeyRequest request, UUID userId) {
+  public ApiKeyCreatedResult createApiKey(ApiKeyCommands.CreateApiKeyCommand command, UUID userId) {
     User user =
         userRepository
             .findById(userId)
@@ -69,16 +71,16 @@ public class ApiKeyUseCase {
     String keyHash = sha256Hex(rawKey);
 
     List<String> scopes =
-        (request.scopes() == null || request.scopes().isEmpty())
+        (command.scopes() == null || command.scopes().isEmpty())
             ? List.of("read", "write", "analytics")
-            : request.scopes();
+            : command.scopes();
 
-    ApiKey apiKey = ApiKey.create(user, keyHash, request.name(), scopes);
-    if (request.expiresAt() != null) {
-      apiKey.setExpiresAt(request.expiresAt());
+    ApiKey apiKey = ApiKey.create(user, keyHash, command.name(), scopes);
+    if (command.expiresAt() != null) {
+      apiKey.setExpiresAt(command.expiresAt());
     }
-    if (request.rateLimit() != null) {
-      apiKey.setRateLimit(request.rateLimit());
+    if (command.rateLimit() != null) {
+      apiKey.setRateLimit(command.rateLimit());
     }
 
     apiKey = apiKeyRepository.save(apiKey);
@@ -91,13 +93,13 @@ public class ApiKeyUseCase {
             "ApiKey",
             apiKey.getId(),
             null,
-            request.name(),
+            auditJson.build("name", command.name(), "scopes", scopes),
             null,
             null));
 
-    log.info("API key created for userId={} name={}", userId, request.name());
+    log.info("API key created for userId={} name={}", userId, command.name());
 
-    return new ApiKeyCreatedResponse(
+    return new ApiKeyCreatedResult(
         apiKey.getId(),
         apiKey.getName(),
         rawKey,
@@ -111,11 +113,11 @@ public class ApiKeyUseCase {
    * Returns all API keys (active and revoked) for the given user.
    *
    * @param userId the user's UUID
-   * @return list of API key response DTOs (raw key hash is masked)
+   * @return list of API key result DTOs (raw key hash is masked)
    */
   @Transactional(readOnly = true)
-  public List<ApiKeyResponse> listApiKeys(UUID userId) {
-    return apiKeyRepository.findByUserId(userId).stream().map(this::toResponse).toList();
+  public List<ApiKeyResult> listApiKeys(UUID userId) {
+    return apiKeyRepository.findByUserId(userId).stream().map(this::toResult).toList();
   }
 
   /**
@@ -145,8 +147,8 @@ public class ApiKeyUseCase {
     log.info("API key revoked: apiKeyId={} userId={}", apiKeyId, userId);
   }
 
-  private ApiKeyResponse toResponse(ApiKey key) {
-    return new ApiKeyResponse(
+  private ApiKeyResult toResult(ApiKey key) {
+    return new ApiKeyResult(
         key.getId(),
         key.getName(),
         key.getKeyHash().substring(0, 8) + "...", // show prefix only

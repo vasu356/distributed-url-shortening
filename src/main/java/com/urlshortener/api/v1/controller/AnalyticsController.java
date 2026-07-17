@@ -1,7 +1,7 @@
 package com.urlshortener.api.v1.controller;
 
-import com.urlshortener.api.v1.dto.response.AnalyticsResponse;
-import com.urlshortener.api.v1.dto.response.DashboardAnalyticsResponse;
+import com.urlshortener.application.dto.response.AnalyticsResult;
+import com.urlshortener.application.dto.response.DashboardAnalyticsResult;
 import com.urlshortener.application.usecase.AnalyticsUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -32,7 +32,7 @@ public class AnalyticsController {
 
   @GetMapping("/{shortCode}")
   @Operation(summary = "Get analytics for a specific short URL")
-  public ResponseEntity<AnalyticsResponse> getUrlAnalytics(
+  public ResponseEntity<AnalyticsResult> getUrlAnalytics(
       @PathVariable String shortCode,
       @RequestParam(defaultValue = "30") int days,
       @AuthenticationPrincipal String userId) {
@@ -43,7 +43,7 @@ public class AnalyticsController {
 
   @GetMapping("/dashboard")
   @Operation(summary = "Get aggregate analytics for the authenticated user")
-  public ResponseEntity<DashboardAnalyticsResponse> getDashboard(
+  public ResponseEntity<DashboardAnalyticsResult> getDashboard(
       @RequestParam(defaultValue = "30") int days, @AuthenticationPrincipal String userId) {
     int safeDays = Math.min(Math.max(days, 1), 365);
     return ResponseEntity.ok(analyticsUseCase.getDashboard(UUID.fromString(userId), safeDays));

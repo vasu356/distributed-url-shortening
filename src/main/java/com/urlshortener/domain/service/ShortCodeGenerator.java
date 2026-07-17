@@ -1,7 +1,8 @@
-package com.urlshortener.common.util;
+package com.urlshortener.domain.service;
 
 import com.google.common.hash.BloomFilter;
 import com.google.common.hash.Funnels;
+import com.urlshortener.common.util.Base62Encoder;
 import com.urlshortener.domain.repository.ShortUrlRepository;
 import java.nio.charset.StandardCharsets;
 import lombok.extern.slf4j.Slf4j;

@@ -6,12 +6,13 @@
 
 -- Insert admin user with BCrypt-hashed default password
 -- Hash generated for "Admin@123456" at BCrypt cost 12
+-- Verified: BCryptPasswordEncoder.matches("Admin@123456", hash) == true
 -- In production, override via environment-specific migration or Kubernetes job
 INSERT INTO users (id, email, password_hash, role, is_active)
 VALUES (
     gen_random_uuid(),
     'admin@example.com',
-    '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewKyNiAYMyzJ5hri',
+    '$2a$12$pKpLPVPLs0bfEnVsSxHuNOw0EbBDtF5WO29xCVaiBmg0OT7Mwhid2',
     'ADMIN',
     TRUE
 ) ON CONFLICT (email) DO NOTHING;

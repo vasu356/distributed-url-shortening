@@ -75,9 +75,16 @@ spring:
         max.in.flight.requests.per.connection: 5
         linger.ms: 5
         batch.size: 16384
-        compression.type: snappy
         delivery.timeout.ms: 60000
         spring.json.add.type.info.headers: true
+        # Explicitly set compression.type=none on the producer so that Snappy
+        # (or any other codec) is never used to compress outgoing messages.
+        # snappy-java is present on the classpath (required because kafka-clients'
+        # SnappyCodec imports snappy classes at bytecode level — excluding the JAR
+        # causes NoClassDefFoundError). The runtime image (eclipse-temurin:21-jre-jammy)
+        # ships glibc so the native lib loads without error, but compression.type=none
+        # ensures the codec is never instantiated.
+        compression.type: none
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:url-shortener-main}
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer

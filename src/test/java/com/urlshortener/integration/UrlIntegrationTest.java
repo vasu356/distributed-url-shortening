@@ -9,10 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.urlshortener.api.v1.dto.request.AuthDtos;
-import com.urlshortener.api.v1.dto.request.UrlDtos;
-import com.urlshortener.api.v1.dto.response.AuthResponse;
-import com.urlshortener.api.v1.dto.response.UrlResponse;
+import com.urlshortener.application.dto.request.AuthCommands;
+import com.urlshortener.application.dto.request.UrlCommands;
+import com.urlshortener.application.dto.response.AuthResult;
+import com.urlshortener.application.dto.response.UrlResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,25 +31,24 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("full flow: register → create URL → redirect → get analytics")
   void fullFlow_registerCreateRedirectAnalytics() throws Exception {
-    var registerRequest = new AuthDtos.RegisterRequest("integration@test.com", "TestPass@123");
+    var registerCommand = new AuthCommands.RegisterCommand("integration@test.com", "TestPass@123");
 
     MvcResult registerResult =
         mockMvc
             .perform(
                 post("/api/v1/auth/register")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(registerRequest)))
+                    .content(objectMapper.writeValueAsString(registerCommand)))
             .andExpect(status().isCreated())
             .andReturn();
 
-    AuthResponse authResponse =
-        objectMapper.readValue(
-            registerResult.getResponse().getContentAsString(), AuthResponse.class);
-    String token = authResponse.accessToken();
+    AuthResult authResult =
+        objectMapper.readValue(registerResult.getResponse().getContentAsString(), AuthResult.class);
+    String token = authResult.accessToken();
     assertThat(token).isNotBlank();
 
-    var createRequest =
-        new UrlDtos.CreateUrlRequest(
+    var createCommand =
+        new UrlCommands.CreateUrlCommand(
             "https://www.example.com/very-long-url", null, null, 302, null, null);
 
     MvcResult createResult =
@@ -58,15 +57,15 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
                 post("/api/v1/urls")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + token)
-                    .content(objectMapper.writeValueAsString(createRequest)))
+                    .content(objectMapper.writeValueAsString(createCommand)))
             .andExpect(status().isCreated())
             .andReturn();
 
-    UrlResponse urlResponse =
-        objectMapper.readValue(createResult.getResponse().getContentAsString(), UrlResponse.class);
-    String shortCode = urlResponse.shortCode();
+    UrlResult urlResult =
+        objectMapper.readValue(createResult.getResponse().getContentAsString(), UrlResult.class);
+    String shortCode = urlResult.shortCode();
     assertThat(shortCode).hasSize(7);
-    assertThat(urlResponse.longUrl()).isEqualTo("https://www.example.com/very-long-url");
+    assertThat(urlResult.longUrl()).isEqualTo("https://www.example.com/very-long-url");
 
     mockMvc
         .perform(get("/r/" + shortCode))
@@ -85,15 +84,15 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
   void customAlias_createAndRedirect() throws Exception {
     String token = registerAndLogin("alias@test.com", "TestPass@123");
 
-    var request =
-        new UrlDtos.CreateUrlRequest("https://github.com", "my-github", null, 302, null, null);
+    var command =
+        new UrlCommands.CreateUrlCommand("https://github.com", "my-github", null, 302, null, null);
 
     mockMvc
         .perform(
             post("/api/v1/urls")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + token)
-                .content(objectMapper.writeValueAsString(request)))
+                .content(objectMapper.writeValueAsString(command)))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.shortCode").value("my-github"));
 
@@ -108,15 +107,15 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
   void duplicateAlias_returns409() throws Exception {
     String token = registerAndLogin("dup@test.com", "TestPass@123");
 
-    var request =
-        new UrlDtos.CreateUrlRequest("https://example.com", "dup-alias", null, 302, null, null);
+    var command =
+        new UrlCommands.CreateUrlCommand("https://example.com", "dup-alias", null, 302, null, null);
 
     mockMvc
         .perform(
             post("/api/v1/urls")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + token)
-                .content(objectMapper.writeValueAsString(request)))
+                .content(objectMapper.writeValueAsString(command)))
         .andExpect(status().isCreated());
 
     mockMvc
@@ -124,7 +123,7 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
             post("/api/v1/urls")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + token)
-                .content(objectMapper.writeValueAsString(request)))
+                .content(objectMapper.writeValueAsString(command)))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errorCode").value("ALIAS_CONFLICT"));
   }
@@ -140,15 +139,15 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
   void deleteUrl_stopsRedirect() throws Exception {
     String token = registerAndLogin("delete@test.com", "TestPass@123");
 
-    var request =
-        new UrlDtos.CreateUrlRequest("https://todelete.com", "del-me", null, 302, null, null);
+    var command =
+        new UrlCommands.CreateUrlCommand("https://todelete.com", "del-me", null, 302, null, null);
 
     mockMvc
         .perform(
             post("/api/v1/urls")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + token)
-                .content(objectMapper.writeValueAsString(request)))
+                .content(objectMapper.writeValueAsString(command)))
         .andExpect(status().isCreated());
 
     mockMvc.perform(get("/r/del-me")).andExpect(status().isFound());
@@ -171,21 +170,21 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
   void createUrl_invalidUrl_returns400() throws Exception {
     String token = registerAndLogin("val@test.com", "TestPass@123");
 
-    var request = new UrlDtos.CreateUrlRequest("not-a-url", null, null, null, null, null);
+    var command = new UrlCommands.CreateUrlCommand("not-a-url", null, null, null, null, null);
 
     mockMvc
         .perform(
             post("/api/v1/urls")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("Authorization", "Bearer " + token)
-                .content(objectMapper.writeValueAsString(request)))
+                .content(objectMapper.writeValueAsString(command)))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
         .andExpect(jsonPath("$.errors").isArray());
   }
 
   private String registerAndLogin(String email, String password) throws Exception {
-    var reg = new AuthDtos.RegisterRequest(email, password);
+    var reg = new AuthCommands.RegisterCommand(email, password);
     MvcResult result =
         mockMvc
             .perform(
@@ -194,8 +193,8 @@ class UrlIntegrationTest extends AbstractIntegrationTest {
                     .content(objectMapper.writeValueAsString(reg)))
             .andExpect(status().isCreated())
             .andReturn();
-    AuthResponse auth =
-        objectMapper.readValue(result.getResponse().getContentAsString(), AuthResponse.class);
+    AuthResult auth =
+        objectMapper.readValue(result.getResponse().getContentAsString(), AuthResult.class);
     return auth.accessToken();
   }
 }

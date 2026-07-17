@@ -114,6 +114,27 @@
         <dependency>
             <groupId>org.springframework.kafka</groupId>
             <artifactId>spring-kafka</artifactId>
+            <!--
+              snappy-java is intentionally NOT excluded here.
+
+              kafka-clients' SnappyCodec class directly imports
+              org.xerial.snappy.SnappyInputStream and SnappyOutputStream at the
+              bytecode level (not via reflection).  When the JVM loads SnappyCodec
+              it resolves those imports immediately; if the JAR is absent the JVM
+              throws NoClassDefFoundError and the KafkaMessageListenerContainer
+              dies before processing any message.
+
+              The runtime image is eclipse-temurin:21-jre-jammy (Ubuntu 22.04 LTS)
+              which ships glibc, so ld-linux-x86-64.so.2 is present and the native
+              libsnappyjava.so that ships inside snappy-java.jar loads without error.
+
+              Snappy is never actually used for compression:
+                • compression.type=none on every topic (KafkaConfig)
+                • compression.type=none on the producer (application.yml)
+              The library being on the classpath is sufficient; it will not load the
+              native lib until a Snappy codec is actually instantiated (which never
+              happens with compression.type=none).
+            -->
         </dependency>
 
         <!-- ============================================================

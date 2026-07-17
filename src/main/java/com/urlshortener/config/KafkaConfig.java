@@ -55,7 +55,7 @@ public class KafkaConfig {
         .partitions(24)
         .replicas(1)
         .config("retention.ms", String.valueOf(7 * 24 * 60 * 60 * 1000L))
-        .config("compression.type", "snappy")
+        .config("compression.type", "producer")
         .build();
   }
 

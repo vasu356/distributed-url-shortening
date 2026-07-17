@@ -1,8 +1,8 @@
 package com.urlshortener.application.usecase;
 
-import com.urlshortener.api.v1.dto.request.UrlDtos;
-import com.urlshortener.api.v1.dto.response.BulkCreateResponse;
-import com.urlshortener.api.v1.dto.response.BulkError;
+import com.urlshortener.application.dto.request.UrlCommands;
+import com.urlshortener.application.dto.response.BulkCreateResult;
+import com.urlshortener.application.dto.response.BulkItemError;
 import com.urlshortener.common.exception.Exceptions;
 import com.urlshortener.domain.model.ShortUrl;
 import com.urlshortener.domain.repository.ShortUrlRepository;
@@ -56,7 +56,7 @@ public class CsvUseCase {
    * @param userId the authenticated user's UUID
    * @return a summary of created URLs and errors
    */
-  public BulkCreateResponse importCsv(MultipartFile file, UUID userId) {
+  public BulkCreateResult importCsv(MultipartFile file, UUID userId) {
     if (file.isEmpty()) {
       throw new Exceptions.BulkImportException("CSV file is empty");
     }
@@ -64,8 +64,8 @@ public class CsvUseCase {
       throw new Exceptions.BulkImportException("CSV file exceeds maximum size of 5MB");
     }
 
-    List<UrlDtos.CreateUrlRequest> requests = new ArrayList<>();
-    List<BulkError> parseErrors = new ArrayList<>();
+    List<UrlCommands.CreateUrlCommand> commands = new ArrayList<>();
+    List<BulkItemError> parseErrors = new ArrayList<>();
 
     try (Reader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8);
         CSVParser parser =
@@ -82,14 +82,14 @@ public class CsvUseCase {
       for (CSVRecord record : parser) {
         if (rowIndex >= MAX_CSV_ROWS) {
           parseErrors.add(
-              new BulkError(rowIndex, "", "Exceeded maximum of " + MAX_CSV_ROWS + " rows"));
+              new BulkItemError(rowIndex, "", "Exceeded maximum of " + MAX_CSV_ROWS + " rows"));
           break;
         }
 
         try {
           String longUrl = record.get("longUrl");
           if (longUrl == null || longUrl.isBlank()) {
-            parseErrors.add(new BulkError(rowIndex, "", "longUrl is required"));
+            parseErrors.add(new BulkItemError(rowIndex, "", "longUrl is required"));
             rowIndex++;
             continue;
           }
@@ -104,7 +104,8 @@ public class CsvUseCase {
               expiresAt = Instant.parse(expiresAtStr);
             } catch (Exception e) {
               parseErrors.add(
-                  new BulkError(rowIndex, longUrl, "Invalid expiresAt format, expected ISO-8601"));
+                  new BulkItemError(
+                      rowIndex, longUrl, "Invalid expiresAt format, expected ISO-8601"));
               rowIndex++;
               continue;
             }
@@ -119,8 +120,8 @@ public class CsvUseCase {
             }
           }
 
-          requests.add(
-              new UrlDtos.CreateUrlRequest(
+          commands.add(
+              new UrlCommands.CreateUrlCommand(
                   longUrl,
                   (alias != null && !alias.isBlank()) ? alias : null,
                   expiresAt,
@@ -129,7 +130,7 @@ public class CsvUseCase {
                   null));
 
         } catch (Exception e) {
-          parseErrors.add(new BulkError(rowIndex, "", "Parse error: " + e.getMessage()));
+          parseErrors.add(new BulkItemError(rowIndex, "", "Parse error: " + e.getMessage()));
         }
         rowIndex++;
       }
@@ -137,27 +138,27 @@ public class CsvUseCase {
       throw new Exceptions.BulkImportException("Failed to parse CSV: " + e.getMessage());
     }
 
-    if (requests.isEmpty() && !parseErrors.isEmpty()) {
+    if (commands.isEmpty() && !parseErrors.isEmpty()) {
       throw new Exceptions.BulkImportException(
           "No valid rows found in CSV. First error: " + parseErrors.get(0).reason());
     }
 
-    BulkCreateResponse result =
-        urlUseCase.bulkCreate(new UrlDtos.BulkCreateRequest(requests), userId);
+    BulkCreateResult result =
+        urlUseCase.bulkCreate(new UrlCommands.BulkCreateCommand(commands), userId);
 
     // Merge CSV parse errors with creation errors
-    List<BulkError> allErrors = new ArrayList<>(parseErrors);
+    List<BulkItemError> allErrors = new ArrayList<>(parseErrors);
     allErrors.addAll(result.errors());
 
     log.info(
         "CSV import: userId={} total={} succeeded={} failed={}",
         userId,
-        requests.size() + parseErrors.size(),
+        commands.size() + parseErrors.size(),
         result.succeeded(),
         allErrors.size());
 
-    return new BulkCreateResponse(
-        requests.size() + parseErrors.size(),
+    return new BulkCreateResult(
+        commands.size() + parseErrors.size(),
         result.succeeded(),
         allErrors.size(),
         result.created(),

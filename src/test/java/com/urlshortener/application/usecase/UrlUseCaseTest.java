@@ -10,18 +10,20 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.urlshortener.api.v1.dto.request.UrlDtos;
-import com.urlshortener.api.v1.dto.response.UrlResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.urlshortener.application.dto.request.UrlCommands;
+import com.urlshortener.application.dto.response.UrlResult;
+import com.urlshortener.application.usecase.UrlUseCase.ResolvedUrl;
 import com.urlshortener.common.exception.Exceptions;
-import com.urlshortener.common.util.ShortCodeGenerator;
 import com.urlshortener.domain.model.ShortUrl;
 import com.urlshortener.domain.model.User;
 import com.urlshortener.domain.repository.ShortUrlRepository;
 import com.urlshortener.domain.repository.UserRepository;
+import com.urlshortener.domain.service.ShortCodeGenerator;
 import com.urlshortener.domain.service.UrlValidationService;
-import com.urlshortener.application.usecase.UrlUseCase.ResolvedUrl;
 import com.urlshortener.infrastructure.cache.CachedUrl;
 import com.urlshortener.infrastructure.cache.UrlCacheService;
+import com.urlshortener.infrastructure.kafka.producer.AuditJsonBuilder;
 import com.urlshortener.infrastructure.kafka.producer.EventProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.Optional;
@@ -60,6 +62,7 @@ class UrlUseCaseTest {
             urlValidationService,
             urlCacheService,
             eventProducer,
+            new AuditJsonBuilder(new ObjectMapper()),
             new BCryptPasswordEncoder(4),
             new SimpleMeterRegistry());
     ReflectionTestUtils.setField(urlUseCase, "baseUrl", "http://localhost:8080");
@@ -71,8 +74,8 @@ class UrlUseCaseTest {
   @Test
   @DisplayName("createUrl generates a short code and saves the URL")
   void createUrl_success() {
-    var request =
-        new UrlDtos.CreateUrlRequest("https://www.example.com", null, null, 302, null, null);
+    var command =
+        new UrlCommands.CreateUrlCommand("https://www.example.com", null, null, 302, null, null);
 
     when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
     // ShortCodeGenerator is mocked — production existsByShortCode is never called for
@@ -83,11 +86,11 @@ class UrlUseCaseTest {
     ReflectionTestUtils.setField(saved, "id", UUID.randomUUID());
     when(shortUrlRepository.save(any())).thenReturn(saved);
 
-    UrlResponse response = urlUseCase.createUrl(request, USER_ID);
+    UrlResult result = urlUseCase.createUrl(command, USER_ID);
 
-    assertThat(response.shortCode()).isEqualTo("abc1234");
-    assertThat(response.longUrl()).isEqualTo("https://www.example.com");
-    assertThat(response.shortUrl()).startsWith("http://localhost:8080/r/");
+    assertThat(result.shortCode()).isEqualTo("abc1234");
+    assertThat(result.longUrl()).isEqualTo("https://www.example.com");
+    assertThat(result.shortUrl()).startsWith("http://localhost:8080/r/");
     verify(urlValidationService).validate("https://www.example.com");
     verify(shortUrlRepository).save(any(ShortUrl.class));
     verify(eventProducer).publishLifecycleEvent(any());
@@ -96,13 +99,14 @@ class UrlUseCaseTest {
   @Test
   @DisplayName("createUrl with custom alias checks alias availability")
   void createUrl_customAlias_checksConflict() {
-    var request =
-        new UrlDtos.CreateUrlRequest("https://www.example.com", "my-alias", null, 302, null, null);
+    var command =
+        new UrlCommands.CreateUrlCommand(
+            "https://www.example.com", "my-alias", null, 302, null, null);
 
     when(userRepository.findById(USER_ID)).thenReturn(Optional.of(testUser));
     when(shortUrlRepository.existsByShortCode("my-alias")).thenReturn(true);
 
-    assertThatThrownBy(() -> urlUseCase.createUrl(request, USER_ID))
+    assertThatThrownBy(() -> urlUseCase.createUrl(command, USER_ID))
         .isInstanceOf(Exceptions.AliasAlreadyExistsException.class);
 
     verify(shortCodeGenerator, never()).generate();

@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.urlshortener.common.util.Base62Encoder;
-import com.urlshortener.common.util.ShortCodeGenerator;
 import com.urlshortener.domain.repository.ShortUrlRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

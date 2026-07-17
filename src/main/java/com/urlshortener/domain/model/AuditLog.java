@@ -14,6 +14,8 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Audit log — append-only, never updated or deleted.
@@ -58,9 +60,11 @@ public class AuditLog {
   @Column(name = "entity_id")
   private UUID entityId;
 
+  @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "old_value", columnDefinition = "jsonb")
   private String oldValue;
 
+  @JdbcTypeCode(SqlTypes.JSON)
   @Column(name = "new_value", columnDefinition = "jsonb")
   private String newValue;
 

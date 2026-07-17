@@ -1,6 +1,6 @@
 package com.urlshortener.api.v1.controller;
 
-import com.urlshortener.api.v1.dto.response.BulkCreateResponse;
+import com.urlshortener.application.dto.response.BulkCreateResult;
 import com.urlshortener.application.usecase.CsvUseCase;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -37,7 +37,7 @@ public class CsvController {
   @Operation(
       summary = "Import URLs from a CSV file",
       description = "CSV format: longUrl,customAlias (alias optional). Max 1000 rows.")
-  public ResponseEntity<BulkCreateResponse> importCsv(
+  public ResponseEntity<BulkCreateResult> importCsv(
       @RequestPart("file") MultipartFile file, @AuthenticationPrincipal String userId) {
     return ResponseEntity.ok(csvUseCase.importCsv(file, UUID.fromString(userId)));
   }

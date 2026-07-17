@@ -7,8 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.urlshortener.api.v1.dto.request.AuthDtos;
-import com.urlshortener.api.v1.dto.response.AuthResponse;
+import com.urlshortener.application.dto.request.AuthCommands;
+import com.urlshortener.application.dto.response.AuthResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +27,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("register → login → me flow succeeds")
   void registerLoginMe_success() throws Exception {
-    var reg = new AuthDtos.RegisterRequest("auth-it@test.com", "Password@123");
+    var reg = new AuthCommands.RegisterCommand("auth-it@test.com", "Password@123");
     MvcResult regResult =
         mockMvc
             .perform(
@@ -40,12 +40,12 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
             .andExpect(jsonPath("$.user.email").value("auth-it@test.com"))
             .andReturn();
 
-    AuthResponse authResponse =
-        objectMapper.readValue(regResult.getResponse().getContentAsString(), AuthResponse.class);
+    AuthResult authResult =
+        objectMapper.readValue(regResult.getResponse().getContentAsString(), AuthResult.class);
 
     mockMvc
         .perform(
-            get("/api/v1/auth/me").header("Authorization", "Bearer " + authResponse.accessToken()))
+            get("/api/v1/auth/me").header("Authorization", "Bearer " + authResult.accessToken()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.email").value("auth-it@test.com"))
         .andExpect(jsonPath("$.role").value("USER"));
@@ -54,7 +54,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("duplicate registration returns 409")
   void register_duplicate_returns409() throws Exception {
-    var reg = new AuthDtos.RegisterRequest("dup-auth@test.com", "Password@123");
+    var reg = new AuthCommands.RegisterCommand("dup-auth@test.com", "Password@123");
     mockMvc
         .perform(
             post("/api/v1/auth/register")
@@ -74,7 +74,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("login with wrong password returns 401")
   void login_wrongPassword_returns401() throws Exception {
-    var reg = new AuthDtos.RegisterRequest("wrongpw@test.com", "Password@123");
+    var reg = new AuthCommands.RegisterCommand("wrongpw@test.com", "Password@123");
     mockMvc
         .perform(
             post("/api/v1/auth/register")
@@ -82,7 +82,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
                 .content(objectMapper.writeValueAsString(reg)))
         .andExpect(status().isCreated());
 
-    var login = new AuthDtos.LoginRequest("wrongpw@test.com", "WrongPassword");
+    var login = new AuthCommands.LoginCommand("wrongpw@test.com", "WrongPassword");
     mockMvc
         .perform(
             post("/api/v1/auth/login")
@@ -95,7 +95,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("refresh token issues new access token")
   void refresh_issuesnNewAccessToken() throws Exception {
-    var reg = new AuthDtos.RegisterRequest("refresh@test.com", "Password@123");
+    var reg = new AuthCommands.RegisterCommand("refresh@test.com", "Password@123");
     MvcResult regResult =
         mockMvc
             .perform(
@@ -105,10 +105,10 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
             .andExpect(status().isCreated())
             .andReturn();
 
-    AuthResponse auth =
-        objectMapper.readValue(regResult.getResponse().getContentAsString(), AuthResponse.class);
+    AuthResult auth =
+        objectMapper.readValue(regResult.getResponse().getContentAsString(), AuthResult.class);
 
-    var refreshReq = new AuthDtos.RefreshRequest(auth.refreshToken());
+    var refreshReq = new AuthCommands.RefreshCommand(auth.refreshToken());
     MvcResult refreshResult =
         mockMvc
             .perform(
@@ -118,9 +118,8 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
             .andExpect(status().isOk())
             .andReturn();
 
-    AuthResponse refreshed =
-        objectMapper.readValue(
-            refreshResult.getResponse().getContentAsString(), AuthResponse.class);
+    AuthResult refreshed =
+        objectMapper.readValue(refreshResult.getResponse().getContentAsString(), AuthResult.class);
 
     assertThat(refreshed.accessToken()).isNotBlank();
     assertThat(refreshed.accessToken()).isNotEqualTo(auth.accessToken());
@@ -129,7 +128,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("logout blacklists the token")
   void logout_blacklistsToken() throws Exception {
-    var reg = new AuthDtos.RegisterRequest("logout@test.com", "Password@123");
+    var reg = new AuthCommands.RegisterCommand("logout@test.com", "Password@123");
     MvcResult result =
         mockMvc
             .perform(
@@ -138,8 +137,8 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
                     .content(objectMapper.writeValueAsString(reg)))
             .andExpect(status().isCreated())
             .andReturn();
-    AuthResponse auth =
-        objectMapper.readValue(result.getResponse().getContentAsString(), AuthResponse.class);
+    AuthResult auth =
+        objectMapper.readValue(result.getResponse().getContentAsString(), AuthResult.class);
 
     mockMvc
         .perform(
@@ -160,7 +159,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("register with invalid email returns 400")
   void register_invalidEmail_returns400() throws Exception {
-    var reg = new AuthDtos.RegisterRequest("not-an-email", "Password@123");
+    var reg = new AuthCommands.RegisterCommand("not-an-email", "Password@123");
     mockMvc
         .perform(
             post("/api/v1/auth/register")
@@ -173,7 +172,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
   @Test
   @DisplayName("register with too-short password returns 400")
   void register_shortPassword_returns400() throws Exception {
-    var reg = new AuthDtos.RegisterRequest("short@test.com", "abc");
+    var reg = new AuthCommands.RegisterCommand("short@test.com", "abc");
     mockMvc
         .perform(
             post("/api/v1/auth/register")

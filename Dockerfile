@@ -12,14 +12,11 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 
 WORKDIR /build
 
-# ---- Step 1: resolve dependencies -------------------------
-# Copy only pom.xml first. As long as pom.xml is unchanged this
-# layer — and the dependency:go-offline download — is fully cached
-# regardless of any source code change.
+# ---- Step 1: copy pom.xml --------------------------------
+# Separate from src/ so a pom.xml change correctly propagates
+# to the Maven build layer, while a src/-only change keeps this
+# layer cached.
 COPY pom.xml .
-
-RUN --mount=type=cache,target=/root/.m2,sharing=locked \
-    mvn dependency:go-offline dependency:resolve-plugins -B -q
 
 # ---- Step 2: compile healthcheck (independent of src/) -----
 # Placed before COPY src/ so that changing HealthCheck.java alone
@@ -29,8 +26,9 @@ COPY docker/HealthCheck.java ./HealthCheck.java
 RUN javac HealthCheck.java -d /build/healthcheck-cls
 
 # ---- Step 3: compile and package the application ----------
-# Only reached (and only re-runs Maven) when src/ changes.
-# All dependencies are already in /root/.m2 from step 1.
+# Only reached (and only re-runs Maven) when src/ or pom.xml changes.
+# Dependencies are fetched once and cached in /root/.m2 by BuildKit.
+# Subsequent builds only download what genuinely changed in pom.xml.
 COPY src/ src/
 
 RUN --mount=type=cache,target=/root/.m2,sharing=locked \
@@ -50,13 +48,25 @@ RUN java -Djarmode=layertools \
 # Stage 2: Runtime
 # Minimal JRE image. Non-root user. Only application layers.
 # No JDK, no Maven, no source code, no build tools.
+#
+# WHY eclipse-temurin:21-jre-jammy instead of *-alpine:
+# Alpine uses musl libc; it does not provide ld-linux-x86-64.so.2
+# (the glibc dynamic linker). kafka-clients' SnappyCodec class
+# directly imports org.xerial.snappy.SnappyInputStream/OutputStream
+# at the bytecode level. If snappy-java.jar is excluded, the JVM
+# throws NoClassDefFoundError when loading SnappyCodec, killing
+# every Kafka consumer. If snappy-java.jar is present on Alpine,
+# the native libsnappyjava.so cannot load (no ld-linux-x86-64.so.2),
+# causing UnsatisfiedLinkError. Ubuntu 22.04 LTS (Jammy) ships glibc
+# so the native lib loads correctly and snappy-java works without
+# any exclusion or workaround.
 # ============================================================
-FROM eclipse-temurin:21-jre-alpine AS runtime
+FROM eclipse-temurin:21-jre-jammy AS runtime
 
 # Security: run as non-root user
 # uid/gid 10001 chosen to avoid conflicts with standard system users
-RUN addgroup -g 10001 -S appgroup && \
-    adduser -u 10001 -S appuser -G appgroup
+RUN groupadd -g 10001 appgroup && \
+    useradd -u 10001 -g appgroup -s /usr/sbin/nologin -M appuser
 
 WORKDIR /app
 

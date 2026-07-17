@@ -1,9 +1,9 @@
 package com.urlshortener.api.v1.controller;
 
-import com.urlshortener.api.v1.dto.request.UrlDtos;
-import com.urlshortener.api.v1.dto.response.BulkCreateResponse;
-import com.urlshortener.api.v1.dto.response.PagedResponse;
-import com.urlshortener.api.v1.dto.response.UrlResponse;
+import com.urlshortener.application.dto.request.UrlCommands;
+import com.urlshortener.application.dto.response.BulkCreateResult;
+import com.urlshortener.application.dto.response.PagedResult;
+import com.urlshortener.application.dto.response.UrlResult;
 import com.urlshortener.application.usecase.UrlUseCase;
 import com.urlshortener.infrastructure.http.QrCodeService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -52,17 +52,17 @@ public class UrlController {
 
   @PostMapping
   @Operation(summary = "Create a short URL")
-  public ResponseEntity<UrlResponse> create(
-      @Valid @RequestBody UrlDtos.CreateUrlRequest request,
+  public ResponseEntity<UrlResult> create(
+      @Valid @RequestBody UrlCommands.CreateUrlCommand command,
       @AuthenticationPrincipal String userId) {
 
-    UrlResponse response = urlUseCase.createUrl(request, UUID.fromString(userId));
-    return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    UrlResult result = urlUseCase.createUrl(command, UUID.fromString(userId));
+    return ResponseEntity.status(HttpStatus.CREATED).body(result);
   }
 
   @GetMapping("/{shortCode}")
   @Operation(summary = "Get URL details")
-  public ResponseEntity<UrlResponse> get(
+  public ResponseEntity<UrlResult> get(
       @PathVariable String shortCode, @AuthenticationPrincipal String userId) {
 
     return ResponseEntity.ok(urlUseCase.getUrl(shortCode, UUID.fromString(userId)));
@@ -70,7 +70,7 @@ public class UrlController {
 
   @GetMapping
   @Operation(summary = "List user's URLs with pagination")
-  public ResponseEntity<PagedResponse<UrlResponse>> list(
+  public ResponseEntity<PagedResult<UrlResult>> list(
       @RequestParam(defaultValue = "0") int page,
       @RequestParam(defaultValue = "20") int size,
       @RequestParam(defaultValue = "createdAt") String sortBy,
@@ -90,7 +90,7 @@ public class UrlController {
             : Sort.by(sortBy).descending();
     PageRequest pageable = PageRequest.of(page, Math.min(size, 100), sort);
 
-    PagedResponse<UrlResponse> result =
+    PagedResult<UrlResult> result =
         (search != null && !search.isBlank())
             ? urlUseCase.searchUserUrls(UUID.fromString(userId), search, pageable)
             : urlUseCase.getUserUrls(UUID.fromString(userId), pageable);
@@ -100,12 +100,12 @@ public class UrlController {
 
   @PatchMapping("/{shortCode}")
   @Operation(summary = "Update a URL")
-  public ResponseEntity<UrlResponse> update(
+  public ResponseEntity<UrlResult> update(
       @PathVariable String shortCode,
-      @Valid @RequestBody UrlDtos.UpdateUrlRequest request,
+      @Valid @RequestBody UrlCommands.UpdateUrlCommand command,
       @AuthenticationPrincipal String userId) {
 
-    return ResponseEntity.ok(urlUseCase.updateUrl(shortCode, request, UUID.fromString(userId)));
+    return ResponseEntity.ok(urlUseCase.updateUrl(shortCode, command, UUID.fromString(userId)));
   }
 
   @DeleteMapping("/{shortCode}")
@@ -119,12 +119,12 @@ public class UrlController {
 
   @PostMapping("/bulk")
   @Operation(summary = "Create multiple URLs (max 1000)")
-  public ResponseEntity<BulkCreateResponse> bulkCreate(
-      @Valid @RequestBody UrlDtos.BulkCreateRequest request,
+  public ResponseEntity<BulkCreateResult> bulkCreate(
+      @Valid @RequestBody UrlCommands.BulkCreateCommand command,
       @AuthenticationPrincipal String userId) {
 
     return ResponseEntity.status(HttpStatus.MULTI_STATUS)
-        .body(urlUseCase.bulkCreate(request, UUID.fromString(userId)));
+        .body(urlUseCase.bulkCreate(command, UUID.fromString(userId)));
   }
 
   @GetMapping("/{shortCode}/qr")

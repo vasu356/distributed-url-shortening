@@ -1,11 +1,12 @@
 package com.urlshortener.application.usecase;
 
-import com.urlshortener.api.v1.dto.request.AuthDtos;
-import com.urlshortener.api.v1.dto.response.AuthResponse;
-import com.urlshortener.api.v1.dto.response.UserResponse;
+import com.urlshortener.application.dto.request.AuthCommands;
+import com.urlshortener.application.dto.response.AuthResult;
+import com.urlshortener.application.dto.response.UserResult;
 import com.urlshortener.common.exception.Exceptions;
 import com.urlshortener.domain.model.User;
 import com.urlshortener.domain.repository.UserRepository;
+import com.urlshortener.infrastructure.kafka.producer.AuditJsonBuilder;
 import com.urlshortener.infrastructure.kafka.producer.EventProducer;
 import com.urlshortener.infrastructure.kafka.producer.KafkaEvents;
 import com.urlshortener.infrastructure.security.JwtService;
@@ -34,20 +35,21 @@ public class AuthUseCase {
   private final PasswordEncoder passwordEncoder;
   private final TokenBlacklistService tokenBlacklistService;
   private final EventProducer eventProducer;
+  private final AuditJsonBuilder auditJson;
 
   /**
    * Registers a new user and returns auth tokens.
    *
-   * @param request the registration request containing email and password
-   * @return auth response with access and refresh tokens
+   * @param command the registration command containing email and password
+   * @return auth result with access and refresh tokens
    */
   @Transactional
-  public AuthResponse register(AuthDtos.RegisterRequest request) {
-    String email = request.email().toLowerCase().trim();
+  public AuthResult register(AuthCommands.RegisterCommand command) {
+    String email = command.email().toLowerCase().trim();
     if (userRepository.existsByEmail(email)) {
       throw new Exceptions.UserAlreadyExistsException(email);
     }
-    String passwordHash = passwordEncoder.encode(request.password());
+    String passwordHash = passwordEncoder.encode(command.password());
     User user = User.create(email, passwordHash);
     user = userRepository.save(user);
     eventProducer.publishAuditEvent(
@@ -58,28 +60,28 @@ public class AuthUseCase {
             "User",
             user.getId(),
             null,
-            email,
+            auditJson.build("email", email, "role", user.getRole().name(), "userId", user.getId()),
             null,
             null));
     log.info("New user registered: email={}", email);
-    return buildAuthResponse(user);
+    return buildAuthResult(user);
   }
 
   /**
    * Authenticates a user and returns auth tokens.
    *
-   * @param request the login request
-   * @return auth response with access and refresh tokens
+   * @param command the login command
+   * @return auth result with access and refresh tokens
    */
   @Transactional(readOnly = true)
-  public AuthResponse login(AuthDtos.LoginRequest request) {
-    String email = request.email().toLowerCase().trim();
+  public AuthResult login(AuthCommands.LoginCommand command) {
+    String email = command.email().toLowerCase().trim();
     User user =
         userRepository.findByEmail(email).orElseThrow(Exceptions.InvalidCredentialsException::new);
     if (!user.isActive()) {
       throw new Exceptions.AccountDeactivatedException();
     }
-    if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+    if (!passwordEncoder.matches(command.password(), user.getPasswordHash())) {
       eventProducer.publishAuditEvent(
           KafkaEvents.AuditEvent.of(
               user.getId(),
@@ -88,26 +90,34 @@ public class AuthUseCase {
               "User",
               user.getId(),
               null,
-              email,
+              auditJson.build("email", email, "userId", user.getId()),
               null,
               null));
       throw new Exceptions.InvalidCredentialsException();
     }
     eventProducer.publishAuditEvent(
         KafkaEvents.AuditEvent.of(
-            user.getId(), "USER", "USER_LOGIN", "User", user.getId(), null, email, null, null));
+            user.getId(),
+            "USER",
+            "USER_LOGIN",
+            "User",
+            user.getId(),
+            null,
+            auditJson.build("email", email, "userId", user.getId()),
+            null,
+            null));
     log.info("User login: email={}", email);
-    return buildAuthResponse(user);
+    return buildAuthResult(user);
   }
 
   /**
    * Exchanges a valid refresh token for new access and refresh tokens.
    *
    * @param refreshToken the refresh token from a prior login
-   * @return new auth response
+   * @return new auth result
    */
   @Transactional(readOnly = true)
-  public AuthResponse refresh(String refreshToken) {
+  public AuthResult refresh(String refreshToken) {
     if (!"refresh".equals(jwtService.extractTokenType(refreshToken))) {
       throw new Exceptions.InvalidTokenException();
     }
@@ -124,7 +134,7 @@ public class AuthUseCase {
       throw new Exceptions.AccountDeactivatedException();
     }
     tokenBlacklistService.blacklist(jti, Duration.ofSeconds(jwtService.getRefreshTokenExpiry()));
-    return buildAuthResponse(user);
+    return buildAuthResult(user);
   }
 
   /**
@@ -146,28 +156,27 @@ public class AuthUseCase {
    * Returns the current authenticated user's profile.
    *
    * @param userId the authenticated user's UUID
-   * @return the user response DTO
+   * @return the user result DTO
    */
   @Transactional(readOnly = true)
-  public UserResponse getCurrentUser(UUID userId) {
+  public UserResult getCurrentUser(UUID userId) {
     User user =
         userRepository
             .findById(userId)
             .orElseThrow(() -> new Exceptions.UserNotFoundException(userId.toString()));
-    return new UserResponse(
+    return new UserResult(
         user.getId(), user.getEmail(), user.getRole().name(), user.getCreatedAt());
   }
 
-  private AuthResponse buildAuthResponse(User user) {
+  private AuthResult buildAuthResult(User user) {
     String accessToken =
         jwtService.generateAccessToken(user.getId(), user.getEmail(), user.getRole().name());
     String refreshToken = jwtService.generateRefreshToken(user.getId());
-    return new AuthResponse(
+    return new AuthResult(
         accessToken,
         "Bearer",
         jwtService.getAccessTokenExpiry(),
         refreshToken,
-        new UserResponse(
-            user.getId(), user.getEmail(), user.getRole().name(), user.getCreatedAt()));
+        new UserResult(user.getId(), user.getEmail(), user.getRole().name(), user.getCreatedAt()));
   }
 }

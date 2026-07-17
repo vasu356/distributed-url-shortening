@@ -1,32 +1,36 @@
 package com.urlshortener.application.usecase;
 
-import com.urlshortener.api.v1.dto.request.UrlDtos;
-import com.urlshortener.api.v1.dto.response.BulkCreateResponse;
-import com.urlshortener.api.v1.dto.response.BulkError;
-import com.urlshortener.api.v1.dto.response.PagedResponse;
-import com.urlshortener.api.v1.dto.response.UrlResponse;
+import com.urlshortener.application.dto.request.UrlCommands;
+import com.urlshortener.application.dto.response.BulkCreateResult;
+import com.urlshortener.application.dto.response.BulkItemError;
+import com.urlshortener.application.dto.response.PagedResult;
+import com.urlshortener.application.dto.response.UrlResult;
 import com.urlshortener.common.exception.Exceptions;
-import com.urlshortener.common.util.ShortCodeGenerator;
 import com.urlshortener.domain.model.ShortUrl;
 import com.urlshortener.domain.model.User;
 import com.urlshortener.domain.repository.ShortUrlRepository;
 import com.urlshortener.domain.repository.UserRepository;
+import com.urlshortener.domain.service.ShortCodeGenerator;
 import com.urlshortener.domain.service.UrlValidationService;
 import com.urlshortener.infrastructure.cache.CachedUrl;
 import com.urlshortener.infrastructure.cache.UrlCacheService;
+import com.urlshortener.infrastructure.kafka.producer.AuditJsonBuilder;
 import com.urlshortener.infrastructure.kafka.producer.EventProducer;
 import com.urlshortener.infrastructure.kafka.producer.KafkaEvents;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +56,7 @@ public class UrlUseCase {
   private final UrlValidationService urlValidationService;
   private final UrlCacheService urlCacheService;
   private final EventProducer eventProducer;
+  private final AuditJsonBuilder auditJson;
   private final PasswordEncoder passwordEncoder;
   private final MeterRegistry meterRegistry;
 
@@ -65,36 +70,36 @@ public class UrlUseCase {
   /**
    * Creates a new short URL for the given user.
    *
-   * @param request the creation request
+   * @param command the creation command
    * @param userId the authenticated user's UUID
-   * @return the created URL response
+   * @return the created URL result
    */
   @Transactional
-  public UrlResponse createUrl(UrlDtos.CreateUrlRequest request, UUID userId) {
-    urlValidationService.validate(request.longUrl());
+  public UrlResult createUrl(UrlCommands.CreateUrlCommand command, UUID userId) {
+    urlValidationService.validate(command.longUrl());
 
     User user =
         userRepository
             .findById(userId)
             .orElseThrow(() -> new Exceptions.UserNotFoundException(userId.toString()));
 
-    String shortCode = resolveShortCode(request.customAlias(), request.longUrl());
-    boolean isCustom = request.customAlias() != null && !request.customAlias().isBlank();
+    String shortCode = resolveShortCode(command.customAlias(), command.longUrl());
+    boolean isCustom = command.customAlias() != null && !command.customAlias().isBlank();
 
-    ShortUrl shortUrl = ShortUrl.create(user, shortCode, request.longUrl(), isCustom);
+    ShortUrl shortUrl = ShortUrl.create(user, shortCode, command.longUrl(), isCustom);
 
-    if (request.expiresAt() != null) {
-      shortUrl.setExpiresAt(request.expiresAt());
+    if (command.expiresAt() != null) {
+      shortUrl.setExpiresAt(command.expiresAt());
     }
-    if (request.redirectType() != null
-        && (request.redirectType() == 301 || request.redirectType() == 302)) {
-      shortUrl.setRedirectType(request.redirectType());
+    if (command.redirectType() != null
+        && (command.redirectType() == 301 || command.redirectType() == 302)) {
+      shortUrl.setRedirectType(command.redirectType());
     }
-    if (request.maxClicks() != null && request.maxClicks() > 0) {
-      shortUrl.setMaxClicks(request.maxClicks());
+    if (command.maxClicks() != null && command.maxClicks() > 0) {
+      shortUrl.setMaxClicks(command.maxClicks());
     }
-    if (request.password() != null && !request.password().isBlank()) {
-      shortUrl.setPasswordHash(passwordEncoder.encode(request.password()));
+    if (command.password() != null && !command.password().isBlank()) {
+      shortUrl.setPasswordHash(passwordEncoder.encode(command.password()));
     }
 
     try {
@@ -113,7 +118,7 @@ public class UrlUseCase {
     // Async: publish lifecycle event (triggers QR gen + metadata scraping)
     eventProducer.publishLifecycleEvent(
         KafkaEvents.LifecycleEvent.of(
-            shortUrl.getId(), shortCode, request.longUrl(), "CREATED", userId));
+            shortUrl.getId(), shortCode, command.longUrl(), "CREATED", userId));
 
     // Async: audit log
     eventProducer.publishAuditEvent(
@@ -124,14 +129,17 @@ public class UrlUseCase {
             "ShortUrl",
             shortUrl.getId(),
             null,
-            shortUrl.getLongUrl(),
+            auditJson.build(
+                "shortCode", shortCode,
+                "longUrl", shortUrl.getLongUrl(),
+                "custom", isCustom),
             null,
             null));
 
     meterRegistry.counter("url.created", "custom", String.valueOf(isCustom)).increment();
     log.info("Created short URL: shortCode={} userId={}", shortCode, userId);
 
-    return toResponse(shortUrl);
+    return toResult(shortUrl);
   }
 
   private String resolveShortCode(String customAlias, String longUrl) {
@@ -154,10 +162,10 @@ public class UrlUseCase {
    *
    * @param shortCode the short code to look up
    * @param requestingUserId the authenticated user requesting the details
-   * @return the URL response
+   * @return the URL result
    */
   @Transactional(readOnly = true)
-  public UrlResponse getUrl(String shortCode, UUID requestingUserId) {
+  public UrlResult getUrl(String shortCode, UUID requestingUserId) {
     ShortUrl url =
         shortUrlRepository
             .findByShortCode(shortCode)
@@ -168,7 +176,7 @@ public class UrlUseCase {
       throw new Exceptions.UrlNotFoundException(shortCode);
     }
 
-    return toResponse(url);
+    return toResult(url);
   }
 
   /**
@@ -176,26 +184,58 @@ public class UrlUseCase {
    *
    * @param userId the user's UUID
    * @param pageable pagination parameters
-   * @return paged URL responses
+   * @return paged URL results
    */
   @Transactional(readOnly = true)
-  public PagedResponse<UrlResponse> getUserUrls(UUID userId, Pageable pageable) {
+  public PagedResult<UrlResult> getUserUrls(UUID userId, Pageable pageable) {
     Page<ShortUrl> page = shortUrlRepository.findByUserIdAndDeletedAtIsNull(userId, pageable);
-    return PagedResponse.of(page.map(this::toResponse));
+    return PagedResult.of(page.map(this::toResult));
   }
+
+  /**
+   * Maps Java entity property names (used in Sort) to PostgreSQL column names (required by native
+   * queries). Spring Data translates property names for JPQL but not for native queries.
+   */
+  private static final Map<String, String> SORT_COLUMN_MAP =
+      Map.of(
+          "createdAt", "created_at",
+          "updatedAt", "updated_at",
+          "clickCount", "click_count",
+          "shortCode", "short_code");
 
   /**
    * Full-text searches the user's URLs by long URL and title.
    *
    * @param userId the user's UUID
    * @param query the search query
-   * @param pageable pagination parameters
-   * @return paged URL responses matching the query
+   * @param pageable pagination parameters (sort property names are translated to column names)
+   * @return paged URL results matching the query
    */
   @Transactional(readOnly = true)
-  public PagedResponse<UrlResponse> searchUserUrls(UUID userId, String query, Pageable pageable) {
-    Page<ShortUrl> page = shortUrlRepository.searchByUserAndQuery(userId, query, pageable);
-    return PagedResponse.of(page.map(this::toResponse));
+  public PagedResult<UrlResult> searchUserUrls(UUID userId, String query, Pageable pageable) {
+    // Native queries require SQL column names in ORDER BY, not Java property names.
+    // Translate each Sort.Order's property name to its corresponding column name.
+    Sort translatedSort =
+        pageable.getSort().isSorted()
+            ? Sort.by(
+                pageable.getSort().stream()
+                    .map(
+                        order ->
+                            order.isAscending()
+                                ? Sort.Order.asc(
+                                    SORT_COLUMN_MAP.getOrDefault(
+                                        order.getProperty(), order.getProperty()))
+                                : Sort.Order.desc(
+                                    SORT_COLUMN_MAP.getOrDefault(
+                                        order.getProperty(), order.getProperty())))
+                    .toList())
+            : Sort.by(Sort.Order.desc("created_at"));
+
+    Pageable nativePageable =
+        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), translatedSort);
+
+    Page<ShortUrl> page = shortUrlRepository.searchByUserAndQuery(userId, query, nativePageable);
+    return PagedResult.of(page.map(this::toResult));
   }
 
   // ================================================================
@@ -263,12 +303,12 @@ public class UrlUseCase {
    * Updates a short URL owned by the given user.
    *
    * @param shortCode the short code to update
-   * @param request the update request
+   * @param command the update command
    * @param userId the authenticated user's UUID (must be owner)
-   * @return the updated URL response
+   * @return the updated URL result
    */
   @Transactional
-  public UrlResponse updateUrl(String shortCode, UrlDtos.UpdateUrlRequest request, UUID userId) {
+  public UrlResult updateUrl(String shortCode, UrlCommands.UpdateUrlCommand command, UUID userId) {
     ShortUrl url =
         shortUrlRepository
             .findByShortCode(shortCode)
@@ -278,21 +318,21 @@ public class UrlUseCase {
 
     String oldLongUrl = url.getLongUrl();
 
-    if (request.longUrl() != null) {
-      urlValidationService.validate(request.longUrl());
-      url.setLongUrl(request.longUrl());
+    if (command.longUrl() != null) {
+      urlValidationService.validate(command.longUrl());
+      url.setLongUrl(command.longUrl());
     }
-    if (request.expiresAt() != null) {
-      url.setExpiresAt(request.expiresAt());
+    if (command.expiresAt() != null) {
+      url.setExpiresAt(command.expiresAt());
     }
-    if (request.active() != null) {
-      url.setActive(request.active());
+    if (command.active() != null) {
+      url.setActive(command.active());
     }
-    if (request.redirectType() != null) {
-      url.setRedirectType(request.redirectType());
+    if (command.redirectType() != null) {
+      url.setRedirectType(command.redirectType());
     }
-    if (request.maxClicks() != null) {
-      url.setMaxClicks(request.maxClicks());
+    if (command.maxClicks() != null) {
+      url.setMaxClicks(command.maxClicks());
     }
 
     shortUrlRepository.save(url);
@@ -307,13 +347,13 @@ public class UrlUseCase {
             "URL_UPDATED",
             "ShortUrl",
             url.getId(),
-            oldLongUrl,
-            url.getLongUrl(),
+            auditJson.build("longUrl", oldLongUrl),
+            auditJson.build("longUrl", url.getLongUrl()),
             null,
             null));
 
     log.info("Updated short URL: shortCode={} userId={}", shortCode, userId);
-    return toResponse(url);
+    return toResult(url);
   }
 
   // ================================================================
@@ -350,7 +390,7 @@ public class UrlUseCase {
             "URL_DELETED",
             "ShortUrl",
             url.getId(),
-            url.getLongUrl(),
+            auditJson.build("shortCode", shortCode, "longUrl", url.getLongUrl()),
             null,
             null,
             null));
@@ -365,33 +405,33 @@ public class UrlUseCase {
   /**
    * Creates multiple short URLs in a single operation.
    *
-   * @param request the bulk creation request (max 1000 URLs)
+   * @param command the bulk creation command (max 1000 URLs)
    * @param userId the authenticated user's UUID
    * @return a summary of created URLs and any errors
    */
   @Transactional
-  public BulkCreateResponse bulkCreate(UrlDtos.BulkCreateRequest request, UUID userId) {
+  public BulkCreateResult bulkCreate(UrlCommands.BulkCreateCommand command, UUID userId) {
     userRepository
         .findById(userId)
         .orElseThrow(() -> new Exceptions.UserNotFoundException(userId.toString()));
 
-    List<UrlResponse> created = new ArrayList<>();
-    List<BulkError> errors = new ArrayList<>();
+    List<UrlResult> created = new ArrayList<>();
+    List<BulkItemError> errors = new ArrayList<>();
 
     int index = 0;
-    for (UrlDtos.CreateUrlRequest urlRequest : request.urls()) {
+    for (UrlCommands.CreateUrlCommand urlCommand : command.urls()) {
       try {
-        UrlResponse response = createUrl(urlRequest, userId);
-        created.add(response);
+        UrlResult result = createUrl(urlCommand, userId);
+        created.add(result);
       } catch (Exception ex) {
-        errors.add(new BulkError(index, urlRequest.longUrl(), ex.getMessage()));
+        errors.add(new BulkItemError(index, urlCommand.longUrl(), ex.getMessage()));
         log.debug("Bulk create error at index {}: {}", index, ex.getMessage());
       }
       index++;
     }
 
-    return new BulkCreateResponse(
-        request.urls().size(), created.size(), errors.size(), created, errors);
+    return new BulkCreateResult(
+        command.urls().size(), created.size(), errors.size(), created, errors);
   }
 
   // ================================================================
@@ -417,13 +457,13 @@ public class UrlUseCase {
   }
 
   /**
-   * Maps a ShortUrl entity to its API response DTO.
+   * Maps a ShortUrl entity to its application result DTO.
    *
    * @param url the entity to map
-   * @return the response DTO
+   * @return the result DTO
    */
-  public UrlResponse toResponse(ShortUrl url) {
-    return new UrlResponse(
+  public UrlResult toResult(ShortUrl url) {
+    return new UrlResult(
         url.getId(),
         url.getShortCode(),
         baseUrl + "/r/" + url.getShortCode(),

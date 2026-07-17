@@ -137,7 +137,7 @@ class ShortUrlRepositoryTest extends AbstractIntegrationTest {
         shortUrlRepository.searchByUserAndQuery(
             testUser.getId(),
             "developer",
-            PageRequest.of(0, 10, Sort.by("createdAt").descending()));
+            PageRequest.of(0, 10, Sort.by("created_at").descending()));
 
     assertThat(results.getContent()).isNotEmpty();
     assertThat(results.getContent().get(0).getShortCode()).isEqualTo("srch001");

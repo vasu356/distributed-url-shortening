@@ -1,10 +1,10 @@
 package com.urlshortener.application.usecase;
 
-import com.urlshortener.api.v1.dto.response.AuditLogResponse;
-import com.urlshortener.api.v1.dto.response.PagedResponse;
-import com.urlshortener.api.v1.dto.response.SystemStatsResponse;
-import com.urlshortener.api.v1.dto.response.UrlResponse;
-import com.urlshortener.api.v1.dto.response.UserResponse;
+import com.urlshortener.application.dto.response.AuditLogResult;
+import com.urlshortener.application.dto.response.PagedResult;
+import com.urlshortener.application.dto.response.SystemStatsResult;
+import com.urlshortener.application.dto.response.UrlResult;
+import com.urlshortener.application.dto.response.UserResult;
 import com.urlshortener.common.exception.Exceptions;
 import com.urlshortener.domain.model.AuditLog;
 import com.urlshortener.domain.model.ShortUrl;
@@ -14,6 +14,7 @@ import com.urlshortener.domain.repository.ClickEventRepository;
 import com.urlshortener.domain.repository.ShortUrlRepository;
 import com.urlshortener.domain.repository.UserRepository;
 import com.urlshortener.infrastructure.cache.UrlCacheService;
+import com.urlshortener.infrastructure.kafka.producer.AuditJsonBuilder;
 import com.urlshortener.infrastructure.kafka.producer.EventProducer;
 import com.urlshortener.infrastructure.kafka.producer.KafkaEvents;
 import java.time.Instant;
@@ -44,6 +45,7 @@ public class AdminUseCase {
   private final ClickEventRepository clickEventRepository;
   private final UrlCacheService urlCacheService;
   private final EventProducer eventProducer;
+  private final AuditJsonBuilder auditJson;
   private final UrlUseCase urlUseCase;
 
   // ----------------------------------------------------------------
@@ -56,28 +58,28 @@ public class AdminUseCase {
    * @param page zero-based page index
    * @param size page size (capped at 100)
    * @param search optional email search string
-   * @return paged user response
+   * @return paged user result
    */
   @Transactional(readOnly = true)
-  public PagedResponse<UserResponse> listUsers(int page, int size, String search) {
+  public PagedResult<UserResult> listUsers(int page, int size, String search) {
     PageRequest pageable =
         PageRequest.of(page, Math.min(size, 100), Sort.by("createdAt").descending());
     Page<User> users =
         (search != null && !search.isBlank())
             ? userRepository.searchByEmail(search, pageable)
             : userRepository.findAll(pageable);
-    return PagedResponse.of(users.map(this::toUserResponse));
+    return PagedResult.of(users.map(this::toUserResult));
   }
 
   /**
    * Returns a single user by UUID.
    *
    * @param userId the user's UUID
-   * @return the user response
+   * @return the user result
    */
   @Transactional(readOnly = true)
-  public UserResponse getUser(UUID userId) {
-    return toUserResponse(
+  public UserResult getUser(UUID userId) {
+    return toUserResult(
         userRepository
             .findById(userId)
             .orElseThrow(() -> new Exceptions.UserNotFoundException(userId.toString())));
@@ -115,10 +117,10 @@ public class AdminUseCase {
    * Promotes a user to the ADMIN role.
    *
    * @param userId the user to promote
-   * @return the updated user response
+   * @return the updated user result
    */
   @Transactional
-  public UserResponse promoteToAdmin(UUID userId) {
+  public UserResult promoteToAdmin(UUID userId) {
     User user =
         userRepository
             .findById(userId)
@@ -137,7 +139,7 @@ public class AdminUseCase {
             null,
             null));
     log.info("User {} promoted to ADMIN", userId);
-    return toUserResponse(user);
+    return toUserResult(user);
   }
 
   // ----------------------------------------------------------------
@@ -151,11 +153,10 @@ public class AdminUseCase {
    * @param size page size (capped at 100)
    * @param userIdStr optional user UUID string filter
    * @param active optional active flag filter
-   * @return paged URL responses
+   * @return paged URL results
    */
   @Transactional(readOnly = true)
-  public PagedResponse<UrlResponse> listAllUrls(
-      int page, int size, String userIdStr, Boolean active) {
+  public PagedResult<UrlResult> listAllUrls(int page, int size, String userIdStr, Boolean active) {
     PageRequest pageable =
         PageRequest.of(page, Math.min(size, 100), Sort.by("createdAt").descending());
 
@@ -166,7 +167,7 @@ public class AdminUseCase {
     } else {
       result = shortUrlRepository.findAll(pageable);
     }
-    return PagedResponse.of(result.map(urlUseCase::toResponse));
+    return PagedResult.of(result.map(urlUseCase::toResult));
   }
 
   /**
@@ -191,7 +192,7 @@ public class AdminUseCase {
             AuditLog.Action.URL_DELETED,
             "ShortUrl",
             url.getId(),
-            url.getLongUrl(),
+            auditJson.build("shortCode", shortCode, "longUrl", url.getLongUrl()),
             null,
             null,
             null));
@@ -210,10 +211,10 @@ public class AdminUseCase {
    * @param entityType optional entity type filter
    * @param page zero-based page index
    * @param size page size (capped at 200)
-   * @return paged audit log responses
+   * @return paged audit log results
    */
   @Transactional(readOnly = true)
-  public PagedResponse<AuditLogResponse> getAuditLogs(
+  public PagedResult<AuditLogResult> getAuditLogs(
       UUID actorId, String action, String entityType, int page, int size) {
     PageRequest pageable =
         PageRequest.of(page, Math.min(size, 200), Sort.by("createdAt").descending());
@@ -221,7 +222,7 @@ public class AdminUseCase {
     Instant to = Instant.now();
     Page<AuditLog> logs =
         auditLogRepository.findWithFilters(actorId, action, entityType, from, to, pageable);
-    return PagedResponse.of(logs.map(this::toAuditLogResponse));
+    return PagedResult.of(logs.map(this::toAuditLogResult));
   }
 
   // ----------------------------------------------------------------
@@ -234,14 +235,13 @@ public class AdminUseCase {
    * @return system stats snapshot
    */
   @Transactional(readOnly = true)
-  public SystemStatsResponse getSystemStats() {
+  public SystemStatsResult getSystemStats() {
     long totalUsers = userRepository.count();
     long activeUsers = userRepository.countByActiveTrue();
     long totalUrls = shortUrlRepository.count();
-    // Use a dummy all-users query — approximate for dashboard
     long totalClicksLast30d = 0L;
 
-    return new SystemStatsResponse(
+    return new SystemStatsResult(
         totalUsers, activeUsers, totalUrls, totalClicksLast30d, Instant.now());
   }
 
@@ -249,12 +249,12 @@ public class AdminUseCase {
   // Mappers
   // ----------------------------------------------------------------
 
-  private UserResponse toUserResponse(User u) {
-    return new UserResponse(u.getId(), u.getEmail(), u.getRole().name(), u.getCreatedAt());
+  private UserResult toUserResult(User u) {
+    return new UserResult(u.getId(), u.getEmail(), u.getRole().name(), u.getCreatedAt());
   }
 
-  private AuditLogResponse toAuditLogResponse(AuditLog a) {
-    return new AuditLogResponse(
+  private AuditLogResult toAuditLogResult(AuditLog a) {
+    return new AuditLogResult(
         a.getId(),
         a.getActorId(),
         a.getActorType() != null ? a.getActorType().name() : null,

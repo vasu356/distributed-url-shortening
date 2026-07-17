@@ -23,6 +23,21 @@ management:
 
 app:
   base-url: http://localhost:8080
+
+  kafka:
+    topics:
+      click-events: url.click-events
+      audit-events: url.audit-events
+      lifecycle-events: url.lifecycle-events
+      click-events-dlt: url.click-events.DLT
+      audit-events-dlt: url.audit-events.DLT
+      lifecycle-events-dlt: url.lifecycle-events.DLT
+    consumer-groups:
+      analytics: analytics-aggregator
+      audit: audit-persister
+      qr-generator: qr-code-generator
+      metadata-scraper: metadata-scraper
+
   jwt:
     secret: dGVzdHNlY3JldGtleWZvcnVuaXR0ZXN0aW5nMTIzNDU2
     access-token-expiry: 3600

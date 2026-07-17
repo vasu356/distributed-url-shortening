@@ -7,10 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.urlshortener.api.v1.dto.request.AuthDtos;
-import com.urlshortener.api.v1.dto.request.UrlDtos;
-import com.urlshortener.api.v1.dto.response.AuthResponse;
-import com.urlshortener.api.v1.dto.response.UrlResponse;
+import com.urlshortener.application.dto.request.AuthCommands;
+import com.urlshortener.application.dto.request.UrlCommands;
+import com.urlshortener.application.dto.response.AuthResult;
+import com.urlshortener.application.dto.response.UrlResult;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -95,7 +95,7 @@ class AnalyticsIntegrationTest extends AbstractIntegrationTest {
   }
 
   private String registerAndGetToken(String email) throws Exception {
-    var reg = new AuthDtos.RegisterRequest(email, "Password@123");
+    var reg = new AuthCommands.RegisterCommand(email, "Password@123");
     MvcResult result =
         mockMvc
             .perform(
@@ -105,23 +105,23 @@ class AnalyticsIntegrationTest extends AbstractIntegrationTest {
             .andExpect(status().isCreated())
             .andReturn();
     return objectMapper
-        .readValue(result.getResponse().getContentAsString(), AuthResponse.class)
+        .readValue(result.getResponse().getContentAsString(), AuthResult.class)
         .accessToken();
   }
 
   private String createUrl(String token, String longUrl) throws Exception {
-    var req = new UrlDtos.CreateUrlRequest(longUrl, null, null, 302, null, null);
+    var command = new UrlCommands.CreateUrlCommand(longUrl, null, null, 302, null, null);
     MvcResult result =
         mockMvc
             .perform(
                 post("/api/v1/urls")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + token)
-                    .content(objectMapper.writeValueAsString(req)))
+                    .content(objectMapper.writeValueAsString(command)))
             .andExpect(status().isCreated())
             .andReturn();
     return objectMapper
-        .readValue(result.getResponse().getContentAsString(), UrlResponse.class)
+        .readValue(result.getResponse().getContentAsString(), UrlResult.class)
         .shortCode();
   }
 }
